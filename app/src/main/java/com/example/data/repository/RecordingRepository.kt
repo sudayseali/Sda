@@ -81,23 +81,27 @@ class RecordingRepository(private val context: Context) {
             // Check video directory
             val videoDir = StorageUtils.getRecordingsDirectory(context)
             videoDir.listFiles()?.filter { it.isFile && it.name.endsWith(".mp4") }?.forEach { file ->
-                val existing = dao.getRecordingByPath(file.absolutePath)
-                if (existing == null) {
-                    val meta = MediaUtils.getVideoMetadata(file.absolutePath)
-                    val title = file.nameWithoutExtension
-                    val item = RecordingEntity(
-                        title = title,
-                        filePath = file.absolutePath,
-                        uriString = file.toURI().toString(),
-                        durationMs = meta.durationMs,
-                        sizeBytes = file.length(),
-                        resolutionLabel = if (meta.width > 0) "${meta.width}x${meta.height}" else "1080p",
-                        fps = 60,
-                        audioSource = "mic",
-                        createdAt = file.lastModified(),
-                        isScreenshot = false
-                    )
-                    dao.insertRecording(item)
+                if (file.length() <= 4096) {
+                    file.delete()
+                } else {
+                    val existing = dao.getRecordingByPath(file.absolutePath)
+                    if (existing == null) {
+                        val meta = MediaUtils.getVideoMetadata(file.absolutePath)
+                        val title = file.nameWithoutExtension
+                        val item = RecordingEntity(
+                            title = title,
+                            filePath = file.absolutePath,
+                            uriString = file.toURI().toString(),
+                            durationMs = meta.durationMs,
+                            sizeBytes = file.length(),
+                            resolutionLabel = if (meta.width > 0) "${meta.width}x${meta.height}" else "1080p",
+                            fps = 60,
+                            audioSource = "mic",
+                            createdAt = file.lastModified(),
+                            isScreenshot = false
+                        )
+                        dao.insertRecording(item)
+                    }
                 }
             }
 

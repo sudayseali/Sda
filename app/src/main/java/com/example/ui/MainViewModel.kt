@@ -86,7 +86,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun startRecordingFlow(resultCode: Int, resultData: Intent) {
+    fun startCountdownAndCapture(onCountdownFinished: () -> Unit) {
         val countdown = settings.value.countdown.seconds
         if (countdown > 0) {
             viewModelScope.launch {
@@ -95,19 +95,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     delay(1000)
                 }
                 _countdownSeconds.value = null
-                executeStartRecordingService(resultCode, resultData)
+                onCountdownFinished()
             }
         } else {
-            executeStartRecordingService(resultCode, resultData)
+            onCountdownFinished()
         }
     }
 
-    private fun executeStartRecordingService(resultCode: Int, resultData: Intent) {
+    fun startRecordingImmediately(resultCode: Int, resultData: Intent, screenWidth: Int, screenHeight: Int, densityDpi: Int) {
         val context = getApplication<Application>()
         val serviceIntent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
             putExtra(RecordingService.EXTRA_RESULT_CODE, resultCode)
             putExtra(RecordingService.EXTRA_RESULT_DATA, resultData)
+            putExtra(RecordingService.EXTRA_SCREEN_WIDTH, screenWidth)
+            putExtra(RecordingService.EXTRA_SCREEN_HEIGHT, screenHeight)
+            putExtra(RecordingService.EXTRA_SCREEN_DENSITY, densityDpi)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(serviceIntent)

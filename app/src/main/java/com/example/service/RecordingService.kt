@@ -95,8 +95,12 @@ class RecordingService : Service() {
                     intent.getParcelableExtra(EXTRA_RESULT_DATA)
                 }
 
+                val width = intent.getIntExtra(EXTRA_SCREEN_WIDTH, 0)
+                val height = intent.getIntExtra(EXTRA_SCREEN_HEIGHT, 0)
+                val density = intent.getIntExtra(EXTRA_SCREEN_DENSITY, 0)
+
                 if (resultCode != 0 && resultData != null) {
-                    startRecording(resultCode, resultData)
+                    startRecording(resultCode, resultData, width, height, density)
                 } else {
                     stopSelf()
                 }
@@ -199,7 +203,7 @@ class RecordingService : Service() {
         manager.notify(NOTIFICATION_ID, buildNotification())
     }
 
-    private fun startRecording(resultCode: Int, resultData: Intent) {
+    private fun startRecording(resultCode: Int, resultData: Intent, passedWidth: Int, passedHeight: Int, passedDensity: Int) {
         val settingsRepo = SettingsRepository(this)
         val settings = settingsRepo.settingsFlow.value
 
@@ -218,16 +222,12 @@ class RecordingService : Service() {
                 startForeground(NOTIFICATION_ID, initialNotification)
             }
 
-            val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
+            val sysMetrics = resources.displayMetrics
+            val screenWidth = if (passedWidth > 0) passedWidth else sysMetrics.widthPixels
+            val screenHeight = if (passedHeight > 0) passedHeight else sysMetrics.heightPixels
+            val screenDensity = if (passedDensity > 0) passedDensity else sysMetrics.densityDpi
 
-            val screenWidth = metrics.widthPixels
-            val screenHeight = metrics.heightPixels
-            val screenDensity = metrics.densityDpi
-
-            // Calculate recording dimensions maintaining aspect ratio
+            // Calculate recording dimensions maintaining aspect ratio and hardware bounds
             val (recordWidth, recordHeight) = calculateDimensions(settings.resolution, screenWidth, screenHeight)
 
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -278,34 +278,35 @@ class RecordingService : Service() {
 
     private fun calculateDimensions(resolution: VideoResolution, screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
         val isPortrait = screenHeight >= screenWidth
-        val targetShortSide = when (resolution) {
-            VideoResolution.AUTO -> if (isPortrait) screenWidth else screenHeight
-            VideoResolution.UHD_2K -> 1440
-            VideoResolution.FHD_1080P -> 1080
-            VideoResolution.HD_720P -> 720
-            VideoResolution.SD_480P -> 480
-        }
-
-        val aspectRatio = if (isPortrait) {
-            screenHeight.toDouble() / screenWidth.toDouble()
-        } else {
-            screenWidth.toDouble() / screenHeight.toDouble()
+        val maxLongSide = when (resolution) {
+            VideoResolution.AUTO -> if (isPortrait) screenHeight else screenWidth
+            VideoResolution.UHD_2K -> 2560
+            VideoResolution.FHD_1080P -> 1920
+            VideoResolution.HD_720P -> 1280
+            VideoResolution.SD_480P -> 854
         }
 
         var width: Int
         var height: Int
 
         if (isPortrait) {
-            width = targetShortSide
-            height = (targetShortSide * aspectRatio).toInt()
+            val targetHeight = minOf(screenHeight, maxLongSide)
+            val scale = targetHeight.toDouble() / screenHeight.coerceAtLeast(1).toDouble()
+            height = targetHeight
+            width = (screenWidth * scale).toInt()
         } else {
-            height = targetShortSide
-            width = (targetShortSide * aspectRatio).toInt()
+            val targetWidth = minOf(screenWidth, maxLongSide)
+            val scale = targetWidth.toDouble() / screenWidth.coerceAtLeast(1).toDouble()
+            width = targetWidth
+            height = (screenHeight * scale).toInt()
         }
 
         // Must be even numbers for H.264 encoder
         if (width % 2 != 0) width -= 1
         if (height % 2 != 0) height -= 1
+
+        width = width.coerceAtLeast(320)
+        height = height.coerceAtLeast(480)
 
         return Pair(width, height)
     }
@@ -343,7 +344,7 @@ class RecordingService : Service() {
         mediaRecorder = recorder
 
         val surface = recorder.surface
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
+        val display = mediaProjection?.createVirtualDisplay(
             "ScreenRecordingDisplay",
             width,
             height,
@@ -353,6 +354,10 @@ class RecordingService : Service() {
             null,
             null
         )
+        if (display == null) {
+            throw IllegalStateException("DisplayManager returned null when creating virtual display ($width x $height @ $densityDpi dpi)")
+        }
+        virtualDisplay = display
     }
 
     private fun pauseRecording() {
@@ -396,15 +401,17 @@ class RecordingService : Service() {
         _recordingState.value = RecordingState.Stopping
         timerHandler.removeCallbacks(timerRunnable)
 
+        var stopSuccess = false
         try {
             mediaRecorder?.stop()
+            stopSuccess = true
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping recorder", e)
         }
 
-        // Save recording into repository & database
+        // Save recording into repository & database ONLY if recording was successful and file is non-empty
         currentOutputFile?.let { file ->
-            if (file.exists() && file.length() > 0) {
+            if (stopSuccess && file.exists() && file.length() > 4096) {
                 val duration = _recordingDurationMs.value
                 val meta = MediaUtils.getVideoMetadata(file.absolutePath)
                 val finalDuration = if (duration > 0) duration else meta.durationMs
@@ -429,6 +436,7 @@ class RecordingService : Service() {
                     _newMediaSavedEvent.emit(item)
                 }
             } else if (file.exists()) {
+                // Delete empty or invalid recording file so it does not corrupt the gallery or MediaPlayer
                 file.delete()
             }
         }
@@ -581,6 +589,9 @@ class RecordingService : Service() {
 
         const val EXTRA_RESULT_CODE = "extra_result_code"
         const val EXTRA_RESULT_DATA = "extra_result_data"
+        const val EXTRA_SCREEN_WIDTH = "extra_screen_width"
+        const val EXTRA_SCREEN_HEIGHT = "extra_screen_height"
+        const val EXTRA_SCREEN_DENSITY = "extra_screen_density"
 
         private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
         val recordingState: StateFlow<RecordingState> = _recordingState.asStateFlow()

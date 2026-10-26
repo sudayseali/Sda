@@ -72,7 +72,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            viewModel.startRecordingFlow(result.resultCode, result.data!!)
+            val metrics = resources.displayMetrics
+            viewModel.startRecordingImmediately(
+                result.resultCode,
+                result.data!!,
+                metrics.widthPixels,
+                metrics.heightPixels,
+                metrics.densityDpi
+            )
         } else {
             Toast.makeText(this, "Screen recording permission cancelled", Toast.LENGTH_SHORT).show()
         }
@@ -82,7 +89,9 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         // Continue to screen capture intent even if optional permissions vary
-        requestScreenCapture()
+        viewModel.startCountdownAndCapture {
+            requestScreenCapture()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -118,7 +127,9 @@ class MainActivity : ComponentActivity() {
         if (neededPermissions.isNotEmpty()) {
             permissionsLauncher.launch(neededPermissions.toTypedArray())
         } else {
-            requestScreenCapture()
+            viewModel.startCountdownAndCapture {
+                requestScreenCapture()
+            }
         }
     }
 

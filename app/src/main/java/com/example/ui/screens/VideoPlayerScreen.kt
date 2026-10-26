@@ -126,13 +126,19 @@ fun VideoPlayerScreen(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         VideoView(ctx).apply {
-                            val mediaController = MediaController(ctx)
-                            mediaController.setAnchorView(this)
-                            setMediaController(mediaController)
-                            setVideoPath(item.filePath)
-                            setOnPreparedListener { mp ->
-                                mp.isLooping = false
-                                start()
+                            val file = File(item.filePath)
+                            if (file.exists() && file.length() > 0) {
+                                val mediaController = MediaController(ctx)
+                                mediaController.setAnchorView(this)
+                                setMediaController(mediaController)
+                                setVideoPath(item.filePath)
+                                setOnPreparedListener { mp ->
+                                    mp.isLooping = false
+                                    start()
+                                }
+                                setOnErrorListener { _, _, _ ->
+                                    true
+                                }
                             }
                         }
                     }
