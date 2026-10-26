@@ -1,0 +1,6 @@
+{
+  "name": "Screen Recorder",
+  "description": "Professional 2K/1080p screen video recorder with internal/mic audio, floating overlay controls, notifications, and media gallery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
