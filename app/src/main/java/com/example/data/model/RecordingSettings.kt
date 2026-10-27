@@ -33,6 +33,22 @@ enum class CountdownOption(val label: String, val seconds: Int) {
     SEC_10("10 seconds", 10)
 }
 
+enum class AutoStopTimeOption(val label: String, val minutes: Int) {
+    UNLIMITED("No limit", 0),
+    MIN_5("5 minutes", 5),
+    MIN_15("15 minutes", 15),
+    MIN_30("30 minutes", 30),
+    MIN_60("1 hour", 60)
+}
+
+enum class AutoStopFileSizeOption(val label: String, val bytes: Long) {
+    UNLIMITED("No limit", 0L),
+    MB_200("200 MB", 200L * 1024 * 1024),
+    MB_500("500 MB", 500L * 1024 * 1024),
+    GB_1("1 GB", 1024L * 1024 * 1024),
+    GB_2("2 GB", 2048L * 1024 * 1024)
+}
+
 data class RecordingSettings(
     val resolution: VideoResolution = VideoResolution.FHD_1080P,
     val fps: VideoFps = VideoFps.FPS_60,
@@ -42,5 +58,15 @@ data class RecordingSettings(
     val floatingControlsEnabled: Boolean = true,
     val stopOnScreenOff: Boolean = true,
     val vibrationFeedback: Boolean = true,
-    val highQualityAudio: Boolean = true
+    val highQualityAudio: Boolean = true,
+    val shakeToStopEnabled: Boolean = false,
+    val facecamEnabled: Boolean = false,
+    val brushEnabled: Boolean = false,
+    val showTouchesEnabled: Boolean = false,
+    val autoStopTime: AutoStopTimeOption = AutoStopTimeOption.UNLIMITED,
+    val autoStopFileSize: AutoStopFileSizeOption = AutoStopFileSizeOption.UNLIMITED,
+    val watermarkEnabled: Boolean = false,
+    val watermarkText: String = "Screen Recorder",
+    val autoSaveToGallery: Boolean = true
 )
+

@@ -19,7 +19,9 @@ import com.example.data.repository.SettingsRepository
 import com.example.service.FloatingControlService
 import com.example.service.RecordingService
 import com.example.service.RecordingState
+import com.example.util.MediaUtils
 import com.example.util.StorageUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -42,6 +44,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val screenshots: StateFlow<List<RecordingItem>> = recordingRepo.screenshots
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val trashRecordings: StateFlow<List<RecordingItem>> = recordingRepo.trashRecordings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _storageInfo = MutableStateFlow(
@@ -86,7 +91,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private var isStartingCapture = false
+
     fun startCountdownAndCapture(onCountdownFinished: () -> Unit) {
+        if (isStartingCapture || recordingState.value !is RecordingState.Idle) {
+            return
+        }
+        isStartingCapture = true
         val countdown = settings.value.countdown.seconds
         if (countdown > 0) {
             viewModelScope.launch {
@@ -98,11 +109,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onCountdownFinished()
             }
         } else {
+            _countdownSeconds.value = null
             onCountdownFinished()
         }
     }
 
+    fun onRecordingCancelled() {
+        isStartingCapture = false
+        _countdownSeconds.value = null
+    }
+
     fun startRecordingImmediately(resultCode: Int, resultData: Intent, screenWidth: Int, screenHeight: Int, densityDpi: Int) {
+        isStartingCapture = false
         val context = getApplication<Application>()
         val serviceIntent = Intent(context, RecordingService::class.java).apply {
             action = RecordingService.ACTION_START
@@ -174,10 +192,105 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (_selectedMedia.value?.id == item.id) {
                     _selectedMedia.value = null
                 }
-                _userMessage.value = "Deleted successfully"
+                _userMessage.value = "Moved to Trash"
                 refreshStorageInfo()
             } else {
-                _userMessage.value = "Delete failed"
+                _userMessage.value = "Failed to move to Trash"
+            }
+        }
+    }
+
+    fun restoreFromTrash(item: RecordingItem) {
+        viewModelScope.launch {
+            recordingRepo.restoreFromTrash(item.id)
+            _userMessage.value = "Restored: ${item.title}"
+            refreshStorageInfo()
+        }
+    }
+
+    fun deletePermanently(item: RecordingItem) {
+        viewModelScope.launch {
+            val success = recordingRepo.deletePermanently(item)
+            if (success) {
+                _userMessage.value = "Permanently deleted"
+                refreshStorageInfo()
+            } else {
+                _userMessage.value = "Permanent deletion failed"
+            }
+        }
+    }
+
+    fun clearTrash() {
+        viewModelScope.launch {
+            val success = recordingRepo.clearTrash()
+            if (success) {
+                _userMessage.value = "Trash cleared"
+                refreshStorageInfo()
+            }
+        }
+    }
+
+    fun trimVideo(item: RecordingItem, startMs: Long, endMs: Long, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val recordingsDir = StorageUtils.getRecordingsDirectory(getApplication())
+                val destFile = java.io.File(recordingsDir, "TRIM_${System.currentTimeMillis()}_${item.title}.mp4")
+                val success = com.example.util.VideoEditorUtils.trimVideo(
+                    inputPath = item.filePath,
+                    outputPath = destFile.absolutePath,
+                    startMs = startMs,
+                    endMs = endMs
+                )
+                if (success && destFile.exists() && destFile.length() > 0) {
+                    val meta = com.example.util.MediaUtils.getVideoMetadata(destFile.absolutePath)
+                    val trimmedItem = RecordingItem(
+                        title = destFile.nameWithoutExtension,
+                        filePath = destFile.absolutePath,
+                        uriString = destFile.toURI().toString(),
+                        durationMs = if (meta.durationMs > 0) meta.durationMs else (endMs - startMs),
+                        sizeBytes = destFile.length(),
+                        resolutionLabel = if (meta.width > 0) "${meta.width}x${meta.height}" else item.resolutionLabel,
+                        fps = item.fps,
+                        audioSource = item.audioSource,
+                        createdAt = System.currentTimeMillis(),
+                        isScreenshot = false
+                    )
+                    recordingRepo.insertRecording(trimmedItem)
+                    refreshStorageInfo()
+                    _userMessage.value = "Trimmed video saved successfully!"
+                    onDone(true)
+                } else {
+                    _userMessage.value = "Failed to trim video"
+                    onDone(false)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _userMessage.value = "Error trimming video: ${e.message}"
+                onDone(false)
+            }
+        }
+    }
+
+    fun extractAudio(item: RecordingItem, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val recordingsDir = StorageUtils.getRecordingsDirectory(getApplication())
+                val destFile = java.io.File(recordingsDir, "AUDIO_${System.currentTimeMillis()}_${item.title}.m4a")
+                val success = com.example.util.VideoEditorUtils.extractAudio(
+                    inputPath = item.filePath,
+                    outputPath = destFile.absolutePath
+                )
+                if (success && destFile.exists() && destFile.length() > 0) {
+                    _userMessage.value = "Audio extracted: ${destFile.name}"
+                    onDone(true)
+                } else {
+                    _userMessage.value = "Audio extraction failed (no audio track or unsupported codec)"
+                    onDone(false)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _userMessage.value = "Error extracting audio: ${e.message}"
+                onDone(false)
             }
         }
     }
@@ -187,6 +300,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             recordingRepo.toggleFavorite(item.id, !item.isFavorite)
         }
     }
+
+    fun saveMediaToGallery(item: RecordingItem, onDone: (Boolean) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val file = java.io.File(item.filePath)
+                if (!file.exists()) {
+                    _userMessage.value = "Faylka lama helin (File not found)"
+                    onDone(false)
+                    return@launch
+                }
+                val uri = if (item.isScreenshot) {
+                    MediaUtils.saveImageToGallery(getApplication(), file, item.title)
+                } else {
+                    MediaUtils.saveVideoToGallery(getApplication(), file, item.title)
+                }
+                if (uri != null) {
+                    _userMessage.value = if (item.isScreenshot) {
+                        "Sawirka waxaa lagu keydiyay Gallery-ga!"
+                    } else {
+                        "Fiidiyowga waxaa lagu keydiyay Gallery-ga!"
+                    }
+                    onDone(true)
+                } else {
+                    _userMessage.value = "Ku keydinta Gallery-ga ma guuleysan (Failed to save to Gallery)"
+                    onDone(false)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _userMessage.value = "Khalad: ${e.message}"
+                onDone(false)
+            }
+        }
+    }
+
+    fun setAutoSaveToGallery(enabled: Boolean) {
+        settingsRepo.updateAutoSaveToGallery(enabled)
+    }
+
 
     // Settings actions
     fun setResolution(res: VideoResolution) {
@@ -221,6 +372,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setVibrationFeedback(enabled: Boolean) {
         settingsRepo.updateVibrationFeedback(enabled)
+    }
+
+    fun setShakeToStop(enabled: Boolean) {
+        settingsRepo.updateShakeToStop(enabled)
+    }
+
+    fun setFacecam(enabled: Boolean) {
+        settingsRepo.updateFacecam(enabled)
+    }
+
+    fun setBrush(enabled: Boolean) {
+        settingsRepo.updateBrush(enabled)
+    }
+
+    fun setShowTouches(enabled: Boolean) {
+        settingsRepo.updateShowTouches(enabled)
+    }
+
+    fun setAutoStopTime(option: com.example.data.model.AutoStopTimeOption) {
+        settingsRepo.updateAutoStopTime(option)
+    }
+
+    fun setAutoStopFileSize(option: com.example.data.model.AutoStopFileSizeOption) {
+        settingsRepo.updateAutoStopFileSize(option)
+    }
+
+    fun setWatermark(enabled: Boolean, text: String? = null) {
+        settingsRepo.updateWatermark(enabled, text)
     }
 
     fun hasOverlayPermission(): Boolean {

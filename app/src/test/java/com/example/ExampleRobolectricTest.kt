@@ -18,4 +18,12 @@ class ExampleRobolectricTest {
         val appName = context.getString(R.string.app_name)
         assertEquals("Screen Recorder", appName)
     }
+
+    @Test
+    fun `database can be created and queried`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = com.example.data.local.AppDatabase.getInstance(context)
+        val dao = db.recordingDao()
+        org.junit.Assert.assertNotNull(dao)
+    }
 }

@@ -48,6 +48,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -64,6 +66,11 @@ class RecordingService : Service() {
     private var accumulatedDuration = 0L
     private var pauseStartTime = 0L
     private var isPaused = false
+    private var isStoppingOrCleaningUp = false
+
+    private var sensorManager: android.hardware.SensorManager? = null
+    private var shakeDetector: com.example.util.ShakeDetector? = null
+    private var cachedSettings: RecordingSettings? = null
 
     private val timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
@@ -72,6 +79,30 @@ class RecordingService : Service() {
                 val currentElapsed = accumulatedDuration + (SystemClock.elapsedRealtime() - recordingStartTime)
                 _recordingDurationMs.value = currentElapsed
                 updateNotification()
+
+                // Check auto-stop conditions
+                cachedSettings?.let { settings ->
+                    // 1. Time limit check
+                    if (settings.autoStopTime.minutes > 0) {
+                        val maxTimeMs = settings.autoStopTime.minutes * 60 * 1000L
+                        if (currentElapsed >= maxTimeMs) {
+                            Log.i(TAG, "Auto-stop triggered: reached time limit of ${settings.autoStopTime.minutes} min")
+                            stopRecording()
+                            return
+                        }
+                    }
+
+                    // 2. File size limit check
+                    if (settings.autoStopFileSize.bytes > 0) {
+                        val currentSize = currentOutputFile?.length() ?: 0L
+                        if (currentSize >= settings.autoStopFileSize.bytes) {
+                            Log.i(TAG, "Auto-stop triggered: reached file size limit of ${settings.autoStopFileSize.label}")
+                            stopRecording()
+                            return
+                        }
+                    }
+                }
+
                 timerHandler.postDelayed(this, 1000)
             }
         }
@@ -208,13 +239,21 @@ class RecordingService : Service() {
         val settings = settingsRepo.settingsFlow.value
 
         try {
+            cleanup()
+            isStoppingOrCleaningUp = false
+
             // CRITICAL FOR ANDROID 14+ (API 34+):
             // startForeground MUST be called BEFORE MediaProjectionManager.getMediaProjection().
             // Otherwise Android throws: SecurityException: Media projections require a foreground service of type ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             val initialNotification = buildNotification()
+            val hasMicPermission = ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                if (settings.audioSource == AudioSourceType.MIC) {
+                if (settings.audioSource == AudioSourceType.MIC && hasMicPermission) {
                     type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                 }
                 startForeground(NOTIFICATION_ID, initialNotification, type)
@@ -236,7 +275,10 @@ class RecordingService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                     override fun onStop() {
-                        stopRecording()
+                        if (!isStoppingOrCleaningUp) {
+                            Log.i(TAG, "MediaProjection stopped by system, terminating session")
+                            stopRecording()
+                        }
                     }
                 }, Handler(Looper.getMainLooper()))
             }
@@ -255,11 +297,42 @@ class RecordingService : Service() {
             _recordingState.value = RecordingState.Recording
             _recordingDurationMs.value = 0L
 
+            cachedSettings = settings
             timerHandler.post(timerRunnable)
+
+            // Shake to stop
+            if (settings.shakeToStopEnabled) {
+                sensorManager = getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+                sensorManager?.let { sm ->
+                    shakeDetector = com.example.util.ShakeDetector {
+                        Log.i(TAG, "Shake detected: stopping recording")
+                        stopRecording()
+                    }
+                    shakeDetector?.start(sm)
+                }
+            }
 
             // Launch floating overlay if enabled
             if (settings.floatingControlsEnabled) {
                 startFloatingControls()
+            }
+
+            // Launch Facecam if enabled
+            if (settings.facecamEnabled) {
+                try {
+                    startService(Intent(this, FacecamService::class.java).apply { action = FacecamService.ACTION_SHOW })
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start FacecamService", e)
+                }
+            }
+
+            // Launch Brush overlay if enabled
+            if (settings.brushEnabled) {
+                try {
+                    startService(Intent(this, BrushOverlayService::class.java).apply { action = BrushOverlayService.ACTION_SHOW })
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start BrushOverlayService", e)
+                }
             }
 
         } catch (e: Exception) {
@@ -277,9 +350,12 @@ class RecordingService : Service() {
     }
 
     private fun calculateDimensions(resolution: VideoResolution, screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
-        val isPortrait = screenHeight >= screenWidth
+        val safeScreenWidth = if (screenWidth > 0) screenWidth else 1080
+        val safeScreenHeight = if (screenHeight > 0) screenHeight else 1920
+        val isPortrait = safeScreenHeight >= safeScreenWidth
+
         val maxLongSide = when (resolution) {
-            VideoResolution.AUTO -> if (isPortrait) screenHeight else screenWidth
+            VideoResolution.AUTO -> if (isPortrait) minOf(safeScreenHeight, 1920) else minOf(safeScreenWidth, 1920)
             VideoResolution.UHD_2K -> 2560
             VideoResolution.FHD_1080P -> 1920
             VideoResolution.HD_720P -> 1280
@@ -290,23 +366,23 @@ class RecordingService : Service() {
         var height: Int
 
         if (isPortrait) {
-            val targetHeight = minOf(screenHeight, maxLongSide)
-            val scale = targetHeight.toDouble() / screenHeight.coerceAtLeast(1).toDouble()
+            val targetHeight = minOf(safeScreenHeight, maxLongSide)
+            val scale = targetHeight.toDouble() / safeScreenHeight.coerceAtLeast(1).toDouble()
             height = targetHeight
-            width = (screenWidth * scale).toInt()
+            width = (safeScreenWidth * scale).toInt()
         } else {
-            val targetWidth = minOf(screenWidth, maxLongSide)
-            val scale = targetWidth.toDouble() / screenWidth.coerceAtLeast(1).toDouble()
+            val targetWidth = minOf(safeScreenWidth, maxLongSide)
+            val scale = targetWidth.toDouble() / safeScreenWidth.coerceAtLeast(1).toDouble()
             width = targetWidth
-            height = (screenHeight * scale).toInt()
+            height = (safeScreenHeight * scale).toInt()
         }
 
         // Must be even numbers for H.264 encoder
         if (width % 2 != 0) width -= 1
         if (height % 2 != 0) height -= 1
 
-        width = width.coerceAtLeast(320)
-        height = height.coerceAtLeast(480)
+        width = width.coerceIn(320, 2560)
+        height = height.coerceIn(320, 2560)
 
         return Pair(width, height)
     }
@@ -319,7 +395,12 @@ class RecordingService : Service() {
             MediaRecorder()
         }
 
-        val useMic = settings.audioSource == AudioSourceType.MIC
+        val hasMicPermission = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        val useMic = (settings.audioSource == AudioSourceType.MIC) && hasMicPermission
+
         if (useMic) {
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
         }
@@ -335,27 +416,78 @@ class RecordingService : Service() {
 
         recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
         recorder.setVideoSize(width, height)
-        recorder.setVideoFrameRate(settings.fps.value)
-        recorder.setVideoEncodingBitRate(settings.bitrate.value)
+        recorder.setVideoFrameRate(settings.fps.value.coerceIn(24, 60))
+        recorder.setVideoEncodingBitRate(settings.bitrate.value.coerceIn(2_000_000, 16_000_000))
 
         recorder.setOutputFile(currentOutputFile?.absolutePath)
-        recorder.prepare()
+
+        try {
+            recorder.prepare()
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaRecorder prepare failed with $width x $height, falling back to safe 720p/1080p profile", e)
+            recorder.reset()
+            if (useMic) {
+                recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+            }
+            recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            if (useMic) {
+                recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            }
+            recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+            val fallbackW = if (width > height) 1280 else 720
+            val fallbackH = if (width > height) 720 else 1280
+            recorder.setVideoSize(fallbackW, fallbackH)
+            recorder.setVideoFrameRate(30)
+            recorder.setVideoEncodingBitRate(4_000_000)
+            recorder.setOutputFile(currentOutputFile?.absolutePath)
+            recorder.prepare()
+        }
 
         mediaRecorder = recorder
 
         val surface = recorder.surface
-        val display = mediaProjection?.createVirtualDisplay(
+        val safeDensity = if (densityDpi > 0) densityDpi else resources.displayMetrics.densityDpi.coerceAtLeast(160)
+
+        val virtualDisplayCallback = object : VirtualDisplay.Callback() {
+            override fun onPaused() {
+                Log.d(TAG, "VirtualDisplay paused")
+            }
+            override fun onResumed() {
+                Log.d(TAG, "VirtualDisplay resumed")
+            }
+            override fun onStopped() {
+                Log.d(TAG, "VirtualDisplay stopped")
+            }
+        }
+
+        var display = mediaProjection?.createVirtualDisplay(
             "ScreenRecordingDisplay",
             width,
             height,
-            densityDpi,
+            safeDensity,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface,
-            null,
-            null
+            virtualDisplayCallback,
+            Handler(Looper.getMainLooper())
         )
+
         if (display == null) {
-            throw IllegalStateException("DisplayManager returned null when creating virtual display ($width x $height @ $densityDpi dpi)")
+            Log.w(TAG, "VirtualDisplay with AUTO_MIRROR returned null, falling back to PRESENTATION")
+            display = mediaProjection?.createVirtualDisplay(
+                "ScreenRecordingDisplay",
+                width,
+                height,
+                safeDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION,
+                surface,
+                virtualDisplayCallback,
+                Handler(Looper.getMainLooper())
+            )
+        }
+
+        if (display == null) {
+            throw IllegalStateException("DisplayManager returned null when creating virtual display ($width x $height @ $safeDensity dpi)")
         }
         virtualDisplay = display
     }
@@ -397,9 +529,19 @@ class RecordingService : Service() {
 
     private fun stopRecording() {
         if (_recordingState.value == RecordingState.Idle || _recordingState.value == RecordingState.Stopping) return
+        if (isStoppingOrCleaningUp) return
 
+        isStoppingOrCleaningUp = true
         _recordingState.value = RecordingState.Stopping
         timerHandler.removeCallbacks(timerRunnable)
+
+        // Ensure at least 1200ms of recording has elapsed before calling stop() to prevent -1007 (stop failed)
+        val elapsed = SystemClock.elapsedRealtime() - recordingStartTime
+        if (elapsed < 1200L && recordingStartTime > 0L) {
+            try {
+                Thread.sleep((1200L - elapsed).coerceAtLeast(100L))
+            } catch (ignored: InterruptedException) {}
+        }
 
         var stopSuccess = false
         try {
@@ -409,19 +551,19 @@ class RecordingService : Service() {
             Log.e(TAG, "Error stopping recorder", e)
         }
 
-        // Save recording into repository & database ONLY if recording was successful and file is non-empty
+        // Save recording into repository & database if file exists and contains valid data
         currentOutputFile?.let { file ->
-            if (stopSuccess && file.exists() && file.length() > 4096) {
+            if (file.exists() && file.length() > 1024L) {
                 val duration = _recordingDurationMs.value
                 val meta = MediaUtils.getVideoMetadata(file.absolutePath)
-                val finalDuration = if (duration > 0) duration else meta.durationMs
+                val finalDuration = if (duration > 0) duration else (if (meta.durationMs > 0) meta.durationMs else (SystemClock.elapsedRealtime() - recordingStartTime))
                 val settings = SettingsRepository(this).settingsFlow.value
 
                 val item = RecordingItem(
                     title = file.nameWithoutExtension,
                     filePath = file.absolutePath,
                     uriString = file.toURI().toString(),
-                    durationMs = finalDuration,
+                    durationMs = finalDuration.coerceAtLeast(1000L),
                     sizeBytes = file.length(),
                     resolutionLabel = if (meta.width > 0) "${meta.width}x${meta.height}" else settings.resolution.shortLabel,
                     fps = settings.fps.value,
@@ -433,10 +575,16 @@ class RecordingService : Service() {
                 serviceScope.launch {
                     val repo = RecordingRepository(applicationContext)
                     repo.insertRecording(item)
+                    if (settings.autoSaveToGallery) {
+                        try {
+                            MediaUtils.saveVideoToGallery(applicationContext, file, item.title)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed auto-save to gallery", e)
+                        }
+                    }
                     _newMediaSavedEvent.emit(item)
                 }
             } else if (file.exists()) {
-                // Delete empty or invalid recording file so it does not corrupt the gallery or MediaPlayer
                 file.delete()
             }
         }
@@ -456,8 +604,15 @@ class RecordingService : Service() {
     }
 
     private fun captureScreenshot() {
-        // Capture screenshot via ImageReader if projection active
-        val proj = mediaProjection ?: return
+        val proj = mediaProjection
+        if (proj == null) {
+            Log.w(TAG, "Screenshot requested but MediaProjection is not available")
+            return
+        }
+        if (virtualDisplay != null) {
+            Log.w(TAG, "Cannot create secondary virtual display while video recording is in progress (Android 14+)")
+            return
+        }
         serviceScope.launch(Dispatchers.IO) {
             try {
                 val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -524,6 +679,14 @@ class RecordingService : Service() {
 
                     val repo = RecordingRepository(applicationContext)
                     repo.insertRecording(item)
+                    val settings = SettingsRepository(applicationContext).settingsFlow.value
+                    if (settings.autoSaveToGallery) {
+                        try {
+                            MediaUtils.saveImageToGallery(applicationContext, file, item.title)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed auto-save screenshot to gallery", e)
+                        }
+                    }
                     _newMediaSavedEvent.emit(item)
                 }
 
@@ -556,6 +719,7 @@ class RecordingService : Service() {
         } catch (ignored: Exception) {}
 
         try {
+            mediaRecorder?.reset()
             mediaRecorder?.release()
             mediaRecorder = null
         } catch (ignored: Exception) {}
@@ -563,6 +727,20 @@ class RecordingService : Service() {
         try {
             mediaProjection?.stop()
             mediaProjection = null
+        } catch (ignored: Exception) {}
+
+        try {
+            sensorManager?.let { sm -> shakeDetector?.stop(sm) }
+            shakeDetector = null
+            sensorManager = null
+        } catch (ignored: Exception) {}
+
+        try {
+            startService(Intent(this, FacecamService::class.java).apply { action = FacecamService.ACTION_HIDE })
+        } catch (ignored: Exception) {}
+
+        try {
+            startService(Intent(this, BrushOverlayService::class.java).apply { action = BrushOverlayService.ACTION_HIDE })
         } catch (ignored: Exception) {}
 
         currentOutputFile = null

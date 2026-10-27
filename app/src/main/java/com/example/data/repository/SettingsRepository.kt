@@ -3,6 +3,8 @@ package com.example.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.data.model.AudioSourceType
+import com.example.data.model.AutoStopFileSizeOption
+import com.example.data.model.AutoStopTimeOption
 import com.example.data.model.CountdownOption
 import com.example.data.model.RecordingSettings
 import com.example.data.model.VideoBitrate
@@ -27,12 +29,23 @@ class SettingsRepository(context: Context) {
         val floating = prefs.getBoolean("floating_controls", true)
         val stopScreenOff = prefs.getBoolean("stop_screen_off", true)
         val vibration = prefs.getBoolean("vibration_feedback", true)
+        val shakeToStop = prefs.getBoolean("shake_to_stop", false)
+        val facecam = prefs.getBoolean("facecam_enabled", false)
+        val brush = prefs.getBoolean("brush_enabled", false)
+        val showTouches = prefs.getBoolean("show_touches", false)
+        val autoStopTimeStr = prefs.getString("auto_stop_time", AutoStopTimeOption.UNLIMITED.name) ?: AutoStopTimeOption.UNLIMITED.name
+        val autoStopFileSizeStr = prefs.getString("auto_stop_file_size", AutoStopFileSizeOption.UNLIMITED.name) ?: AutoStopFileSizeOption.UNLIMITED.name
+        val watermark = prefs.getBoolean("watermark_enabled", false)
+        val watermarkText = prefs.getString("watermark_text", "Screen Recorder") ?: "Screen Recorder"
+        val autoSaveToGallery = prefs.getBoolean("auto_save_to_gallery", true)
 
         val resolution = try { VideoResolution.valueOf(resName) } catch (e: Exception) { VideoResolution.FHD_1080P }
         val fps = try { VideoFps.valueOf(fpsName) } catch (e: Exception) { VideoFps.FPS_60 }
         val bitrate = try { VideoBitrate.valueOf(bitrateName) } catch (e: Exception) { VideoBitrate.BITRATE_8M }
         val audioSource = try { AudioSourceType.valueOf(audioName) } catch (e: Exception) { AudioSourceType.MIC }
         val countdown = try { CountdownOption.valueOf(countdownName) } catch (e: Exception) { CountdownOption.SEC_3 }
+        val autoStopTime = try { AutoStopTimeOption.valueOf(autoStopTimeStr) } catch (e: Exception) { AutoStopTimeOption.UNLIMITED }
+        val autoStopFileSize = try { AutoStopFileSizeOption.valueOf(autoStopFileSizeStr) } catch (e: Exception) { AutoStopFileSizeOption.UNLIMITED }
 
         return RecordingSettings(
             resolution = resolution,
@@ -42,7 +55,16 @@ class SettingsRepository(context: Context) {
             countdown = countdown,
             floatingControlsEnabled = floating,
             stopOnScreenOff = stopScreenOff,
-            vibrationFeedback = vibration
+            vibrationFeedback = vibration,
+            shakeToStopEnabled = shakeToStop,
+            facecamEnabled = facecam,
+            brushEnabled = brush,
+            showTouchesEnabled = showTouches,
+            autoStopTime = autoStopTime,
+            autoStopFileSize = autoStopFileSize,
+            watermarkEnabled = watermark,
+            watermarkText = watermarkText,
+            autoSaveToGallery = autoSaveToGallery
         )
     }
 
@@ -84,5 +106,52 @@ class SettingsRepository(context: Context) {
     fun updateVibrationFeedback(enabled: Boolean) {
         prefs.edit().putBoolean("vibration_feedback", enabled).apply()
         _settingsFlow.value = _settingsFlow.value.copy(vibrationFeedback = enabled)
+    }
+
+    fun updateShakeToStop(enabled: Boolean) {
+        prefs.edit().putBoolean("shake_to_stop", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(shakeToStopEnabled = enabled)
+    }
+
+    fun updateFacecam(enabled: Boolean) {
+        prefs.edit().putBoolean("facecam_enabled", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(facecamEnabled = enabled)
+    }
+
+    fun updateBrush(enabled: Boolean) {
+        prefs.edit().putBoolean("brush_enabled", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(brushEnabled = enabled)
+    }
+
+    fun updateShowTouches(enabled: Boolean) {
+        prefs.edit().putBoolean("show_touches", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(showTouchesEnabled = enabled)
+    }
+
+    fun updateAutoStopTime(option: AutoStopTimeOption) {
+        prefs.edit().putString("auto_stop_time", option.name).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(autoStopTime = option)
+    }
+
+    fun updateAutoStopFileSize(option: AutoStopFileSizeOption) {
+        prefs.edit().putString("auto_stop_file_size", option.name).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(autoStopFileSize = option)
+    }
+
+    fun updateWatermark(enabled: Boolean, text: String? = null) {
+        val editor = prefs.edit().putBoolean("watermark_enabled", enabled)
+        if (text != null) {
+            editor.putString("watermark_text", text)
+        }
+        editor.apply()
+        _settingsFlow.value = _settingsFlow.value.copy(
+            watermarkEnabled = enabled,
+            watermarkText = text ?: _settingsFlow.value.watermarkText
+        )
+    }
+
+    fun updateAutoSaveToGallery(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_save_to_gallery", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(autoSaveToGallery = enabled)
     }
 }

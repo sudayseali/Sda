@@ -72,15 +72,22 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val metrics = resources.displayMetrics
+            val (width, height, density) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bounds = windowManager.currentWindowMetrics.bounds
+                Triple(bounds.width(), bounds.height(), resources.configuration.densityDpi)
+            } else {
+                val metrics = resources.displayMetrics
+                Triple(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
+            }
             viewModel.startRecordingImmediately(
                 result.resultCode,
                 result.data!!,
-                metrics.widthPixels,
-                metrics.heightPixels,
-                metrics.densityDpi
+                width,
+                height,
+                density
             )
         } else {
+            viewModel.onRecordingCancelled()
             Toast.makeText(this, "Screen recording permission cancelled", Toast.LENGTH_SHORT).show()
         }
     }
@@ -162,6 +169,7 @@ fun ScreenRecorderApp(
     val storageInfo by viewModel.storageInfo.collectAsState()
     val videos by viewModel.videoRecordings.collectAsState()
     val screenshots by viewModel.screenshots.collectAsState()
+    val trashRecordings by viewModel.trashRecordings.collectAsState()
     val selectedMedia by viewModel.selectedMedia.collectAsState()
     val countdown by viewModel.countdownSeconds.collectAsState()
     val userMessage by viewModel.userMessage.collectAsState()
@@ -183,7 +191,10 @@ fun ScreenRecorderApp(
         if (selectedMedia != null && !selectedMedia!!.isScreenshot) {
             VideoPlayerScreen(
                 item = selectedMedia!!,
-                onBack = { viewModel.selectMediaForView(null) }
+                onBack = { viewModel.selectMediaForView(null) },
+                onSaveToGallery = { viewModel.saveMediaToGallery(selectedMedia!!) },
+                onTrim = { startMs, endMs -> viewModel.trimVideo(selectedMedia!!, startMs, endMs) {} },
+                onExtractAudio = { viewModel.extractAudio(selectedMedia!!) {} }
             )
         } else {
             Scaffold(
@@ -288,10 +299,17 @@ fun ScreenRecorderApp(
                         1 -> GalleryScreen(
                             videoList = videos,
                             screenshotList = screenshots,
+                            trashList = trashRecordings,
                             onPlayVideo = { viewModel.selectMediaForView(it) },
+                            onSaveToGallery = { viewModel.saveMediaToGallery(it) },
                             onRename = { item, newTitle -> viewModel.renameMedia(item, newTitle) },
                             onDelete = { item -> viewModel.deleteMedia(item) },
-                            onToggleFavorite = { item -> viewModel.toggleFavorite(item) }
+                            onToggleFavorite = { item -> viewModel.toggleFavorite(item) },
+                            onRestoreFromTrash = { viewModel.restoreFromTrash(it) },
+                            onDeletePermanently = { viewModel.deletePermanently(it) },
+                            onClearTrash = { viewModel.clearTrash() },
+                            onTrimVideo = { item, startMs, endMs -> viewModel.trimVideo(item, startMs, endMs) {} },
+                            onExtractAudio = { item -> viewModel.extractAudio(item) {} }
                         )
                         2 -> SettingsScreen(
                             viewModel = viewModel,

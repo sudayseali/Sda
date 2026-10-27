@@ -64,5 +64,44 @@ class ExampleUnitTest {
         assertEquals(60000L, domain.durationMs)
         assertTrue(domain.isFavorite)
         assertFalse(domain.isScreenshot)
+        assertFalse(domain.isDeleted)
+    }
+
+    @Test
+    fun testTrashEntityMapping() {
+        val now = System.currentTimeMillis()
+        val trashEntity = RecordingEntity(
+            id = 99L,
+            title = "Trashed Video",
+            filePath = "/path/to/trashed.mp4",
+            uriString = "content://trashed",
+            durationMs = 120000L,
+            sizeBytes = 20000000L,
+            resolutionLabel = "720p",
+            fps = 30,
+            audioSource = "internal",
+            createdAt = now - 1000000,
+            isFavorite = false,
+            isScreenshot = false,
+            isDeleted = true,
+            deletedAt = now
+        )
+
+        val domain = trashEntity.toDomainModel()
+        assertTrue(domain.isDeleted)
+        assertEquals(now, domain.deletedAt)
+
+        val backToEntity = RecordingEntity.fromDomainModel(domain)
+        assertTrue(backToEntity.isDeleted)
+        assertEquals(now, backToEntity.deletedAt)
+    }
+
+    @Test
+    fun testAutoStopOptions() {
+        val timeOption = com.example.data.model.AutoStopTimeOption.MIN_15
+        assertEquals(15, timeOption.minutes)
+
+        val sizeOption = com.example.data.model.AutoStopFileSizeOption.GB_1
+        assertEquals(1024L * 1024 * 1024, sizeOption.bytes)
     }
 }

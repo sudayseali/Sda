@@ -227,6 +227,38 @@ class FloatingControlService : Service() {
         }
         actionContainer.addView(shotBtn)
 
+        // Facecam button
+        var isFacecamShowing = false
+        val facecamBtn = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_menu_myplaces)
+            setColorFilter(Color.parseColor("#4CAF50"))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setOnClickListener {
+                isFacecamShowing = !isFacecamShowing
+                val intent = Intent(this@FloatingControlService, FacecamService::class.java).apply {
+                    action = if (isFacecamShowing) FacecamService.ACTION_SHOW else FacecamService.ACTION_HIDE
+                }
+                startService(intent)
+            }
+        }
+        actionContainer.addView(facecamBtn)
+
+        // Screen Brush / Drawing Tool button
+        var isBrushShowing = false
+        val brushBtn = ImageView(this).apply {
+            setImageResource(android.R.drawable.ic_menu_edit)
+            setColorFilter(Color.parseColor("#E040FB"))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setOnClickListener {
+                isBrushShowing = !isBrushShowing
+                val intent = Intent(this@FloatingControlService, BrushOverlayService::class.java).apply {
+                    action = if (isBrushShowing) BrushOverlayService.ACTION_SHOW else BrushOverlayService.ACTION_HIDE
+                }
+                startService(intent)
+            }
+        }
+        actionContainer.addView(brushBtn)
+
         // Open App button
         val appBtn = ImageView(this).apply {
             setImageResource(android.R.drawable.ic_menu_revert)

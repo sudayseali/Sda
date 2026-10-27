@@ -27,6 +27,10 @@ class RecordingRepository(private val context: Context) {
         list.map { it.toDomainModel() }
     }
 
+    val trashRecordings: Flow<List<RecordingItem>> = dao.getTrashItems().map { list ->
+        list.map { it.toDomainModel() }
+    }
+
     suspend fun insertRecording(item: RecordingItem): Long = withContext(Dispatchers.IO) {
         dao.insertRecording(RecordingEntity.fromDomainModel(item))
     }
@@ -58,18 +62,70 @@ class RecordingRepository(private val context: Context) {
         }
     }
 
-    suspend fun deleteRecording(item: RecordingItem): Boolean = withContext(Dispatchers.IO) {
+    suspend fun moveToTrash(id: Long) = withContext(Dispatchers.IO) {
+        dao.moveToTrash(id, System.currentTimeMillis())
+    }
+
+    suspend fun restoreFromTrash(id: Long) = withContext(Dispatchers.IO) {
+        dao.restoreFromTrash(id)
+    }
+
+    suspend fun deletePermanently(item: RecordingItem): Boolean = withContext(Dispatchers.IO) {
         try {
             val file = File(item.filePath)
             if (file.exists()) {
                 file.delete()
             }
-            dao.deleteById(item.id)
+            dao.deletePermanently(item.id)
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
         }
+    }
+
+    suspend fun clearTrash(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // First delete physical files of all trash items
+            // We can fetch from expired/all trash
+            val trashEntityList = dao.getExpiredTrash(Long.MAX_VALUE)
+            trashEntityList.forEach { entity ->
+                try {
+                    val f = File(entity.filePath)
+                    if (f.exists()) f.delete()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            dao.clearTrash()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    suspend fun purgeExpiredTrash(retentionDays: Int = 30) = withContext(Dispatchers.IO) {
+        try {
+            val cutoff = System.currentTimeMillis() - (retentionDays.toLong() * 24 * 60 * 60 * 1000)
+            val expired = dao.getExpiredTrash(cutoff)
+            expired.forEach { entity ->
+                try {
+                    val f = File(entity.filePath)
+                    if (f.exists()) f.delete()
+                    dao.deletePermanently(entity.id)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun deleteRecording(item: RecordingItem): Boolean = withContext(Dispatchers.IO) {
+        moveToTrash(item.id)
+        true
     }
 
     suspend fun toggleFavorite(id: Long, isFav: Boolean) = withContext(Dispatchers.IO) {

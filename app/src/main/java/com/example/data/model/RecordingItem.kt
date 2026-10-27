@@ -12,5 +12,7 @@ data class RecordingItem(
     val audioSource: String,
     val createdAt: Long,
     val isFavorite: Boolean = false,
-    val isScreenshot: Boolean = false
+    val isScreenshot: Boolean = false,
+    val isDeleted: Boolean = false,
+    val deletedAt: Long = 0L
 )

@@ -1,6 +1,12 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,23 +25,35 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.BrandingWatermark
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.CameraFront
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.MotionPhotosOn
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,7 +69,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.data.model.AudioSourceType
+import com.example.data.model.AutoStopFileSizeOption
+import com.example.data.model.AutoStopTimeOption
 import com.example.data.model.CountdownOption
 import com.example.data.model.RecordingSettings
 import com.example.data.model.VideoBitrate
@@ -77,6 +98,16 @@ fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     val context = LocalContext.current
+    var showWatermarkDialog by remember { mutableStateOf(false) }
+    var watermarkInput by remember { mutableStateOf(settings.watermarkText) }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.setFacecam(true)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -139,43 +170,21 @@ fun SettingsScreen(
                 Text("Encoding Bitrate", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(10.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    VideoBitrate.values().forEach { bitrate ->
+                    VideoBitrate.values().forEach { br ->
                         RadioOptionRow(
-                            title = bitrate.label,
+                            title = br.label,
                             subtitle = null,
-                            isSelected = settings.bitrate == bitrate,
-                            onClick = { viewModel.setBitrate(bitrate) },
-                            testTag = "bitrate_option_${bitrate.name.lowercase()}"
+                            isSelected = settings.bitrate == br,
+                            onClick = { viewModel.setBitrate(br) },
+                            testTag = "bitrate_option_${br.name.lowercase()}"
                         )
                     }
                 }
             }
         }
 
-        // Audio Settings Section
-        SettingsSectionHeader(title = "Audio Recording", icon = Icons.Default.Audiotrack)
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = StudioSurfaceVariant),
-            shape = RoundedCornerShape(18.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AudioSourceType.values().forEach { source ->
-                    RadioOptionRow(
-                        title = source.label,
-                        subtitle = source.description,
-                        isSelected = settings.audioSource == source,
-                        onClick = { viewModel.setAudioSource(source) },
-                        testTag = "audio_option_${source.name.lowercase()}"
-                    )
-                }
-            }
-        }
-
-        // Controls & General
-        SettingsSectionHeader(title = "Controls & Feedback", icon = Icons.Default.Layers)
+        // Audio & Countdown
+        SettingsSectionHeader(title = "Audio & Preparation", icon = Icons.Default.Audiotrack)
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -184,33 +193,58 @@ fun SettingsScreen(
             border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                // Countdown
-                Text("Countdown Timer", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("Audio Source", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CountdownOption.values().forEach { option ->
-                        PillSelectable(
-                            title = if (option.seconds == 0) "Off" else "${option.seconds}s",
-                            isSelected = settings.countdown == option,
-                            onClick = { viewModel.setCountdown(option) },
-                            modifier = Modifier.weight(1f),
-                            testTag = "countdown_option_${option.seconds}"
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AudioSourceType.values().forEach { audio ->
+                        RadioOptionRow(
+                            title = audio.label,
+                            subtitle = audio.description,
+                            isSelected = settings.audioSource == audio,
+                            onClick = { viewModel.setAudioSource(audio) },
+                            testTag = "audio_option_${audio.name.lowercase()}"
                         )
                     }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
 
+                Text("Countdown Timer", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CountdownOption.values().forEach { opt ->
+                        PillSelectable(
+                            title = if (opt.seconds == 0) "Off" else "${opt.seconds}s",
+                            isSelected = settings.countdown == opt,
+                            onClick = { viewModel.setCountdown(opt) },
+                            modifier = Modifier.weight(1f),
+                            testTag = "countdown_option_${opt.name.lowercase()}"
+                        )
+                    }
+                }
+            }
+        }
+
+        // Interactive Tools & Overlays
+        SettingsSectionHeader(title = "Overlays & Pro Tools", icon = Icons.Default.Layers)
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = StudioSurfaceVariant),
+            shape = RoundedCornerShape(18.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 // Floating Widget
+                val hasOverlay = viewModel.hasOverlayPermission()
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Floating Overlay Widget", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                        Text("Draggable overlay bubble over other apps", color = TextSecondary, fontSize = 12.sp)
+                        Text("Floating Control Bubble", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Draggable overlay button over apps", color = TextSecondary, fontSize = 12.sp)
                     }
-                    val hasOverlay = viewModel.hasOverlayPermission()
                     Switch(
                         checked = settings.floatingControlsEnabled && hasOverlay,
                         onCheckedChange = { checked ->
@@ -226,6 +260,95 @@ fun SettingsScreen(
                             uncheckedTrackColor = StudioSurface
                         ),
                         modifier = Modifier.testTag("settings_floating_switch")
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Facecam Front Camera
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Facecam Overlay", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Draggable floating front-camera window", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = settings.facecamEnabled,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    if (!hasOverlay) {
+                                        onRequestOverlayPermission()
+                                    } else {
+                                        viewModel.setFacecam(true)
+                                    }
+                                } else {
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                }
+                            } else {
+                                viewModel.setFacecam(false)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = AccentGreen,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("settings_facecam_switch")
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Screen Brush & Drawing Tool
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Screen Drawing / Brush Tool", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Annotate and highlight screen during recording", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = settings.brushEnabled,
+                        onCheckedChange = { checked ->
+                            if (checked && !hasOverlay) {
+                                onRequestOverlayPermission()
+                            } else {
+                                viewModel.setBrush(checked)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = RecordRed,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("settings_brush_switch")
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Shake to Stop
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Shake to Stop Recording", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Shake phone briskly to end recording instantly", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = settings.shakeToStopEnabled,
+                        onCheckedChange = { viewModel.setShakeToStop(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = RecordRed,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("settings_shake_switch")
                     )
                 }
 
@@ -275,8 +398,8 @@ fun SettingsScreen(
             }
         }
 
-        // Storage Directory Info
-        SettingsSectionHeader(title = "Storage Info", icon = Icons.Default.Folder)
+        // Auto-Stop Limits
+        SettingsSectionHeader(title = "Auto-Stop Limits", icon = Icons.Default.Speed)
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -285,6 +408,173 @@ fun SettingsScreen(
             border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
+                Text("Max Recording Duration", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AutoStopTimeOption.values().forEach { opt ->
+                        PillSelectable(
+                            title = opt.label,
+                            isSelected = settings.autoStopTime == opt,
+                            onClick = { viewModel.setAutoStopTime(opt) },
+                            modifier = Modifier.weight(1f),
+                            testTag = "auto_time_${opt.name.lowercase()}"
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                Text("Max File Size Limit", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AutoStopFileSizeOption.values().forEach { opt ->
+                        PillSelectable(
+                            title = opt.label,
+                            isSelected = settings.autoStopFileSize == opt,
+                            onClick = { viewModel.setAutoStopFileSize(opt) },
+                            modifier = Modifier.weight(1f),
+                            testTag = "auto_size_${opt.name.lowercase()}"
+                        )
+                    }
+                }
+            }
+        }
+
+        // Custom Watermark
+        SettingsSectionHeader(title = "Branding & Watermark", icon = Icons.Default.BrandingWatermark)
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = StudioSurfaceVariant),
+            shape = RoundedCornerShape(18.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Custom Branding Watermark", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text(
+                            text = if (settings.watermarkEnabled) "Watermark: \"${settings.watermarkText}\"" else "Overlay personal text branding",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Switch(
+                        checked = settings.watermarkEnabled,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                showWatermarkDialog = true
+                            } else {
+                                viewModel.setWatermark(false)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = RecordRed,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("settings_watermark_switch")
+                    )
+                }
+
+                if (settings.watermarkEnabled) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { showWatermarkDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = StudioSurface),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Edit, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Change Branding Text", color = AccentCyan, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        // Show Touches Guide
+        SettingsSectionHeader(title = "Show Touches / Taps", icon = Icons.Default.TouchApp)
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = StudioSurfaceVariant),
+            shape = RoundedCornerShape(18.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "System Visual Touch Feedback",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "To show visual circles when tapping the screen during video tutorials, enable \"Show taps / Show touches\" in Android Developer Options.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_SETTINGS)
+                                context.startActivity(intent)
+                            } catch (ignored: Exception) {}
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentCyan.copy(alpha = 0.2f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open Android Developer Settings", color = AccentCyan, fontSize = 13.sp)
+                }
+            }
+        }
+
+        // Storage Directory Info & Gallery Sync
+        SettingsSectionHeader(title = "Storage & Gallery", icon = Icons.Default.Folder)
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = StudioSurfaceVariant),
+            shape = RoundedCornerShape(18.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-save to Gallery", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Save videos and screenshots directly to phone Gallery / Photos (Movies/ScreenRecorder)", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = settings.autoSaveToGallery,
+                        onCheckedChange = { viewModel.setAutoSaveToGallery(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = RecordRed,
+                            uncheckedThumbColor = TextTertiary,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("switch_auto_save_gallery")
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
                 Text("Recordings Directory", color = TextSecondary, fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -342,6 +632,45 @@ fun SettingsScreen(
         }
 
         Spacer(modifier = Modifier.height(30.dp))
+    }
+
+    if (showWatermarkDialog) {
+        AlertDialog(
+            onDismissRequest = { showWatermarkDialog = false },
+            title = { Text("Watermark Branding") },
+            text = {
+                Column {
+                    Text("Enter text label to display on screen recordings:")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = watermarkInput,
+                        onValueChange = { watermarkInput = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RecordRed,
+                            unfocusedBorderColor = StudioCardBorder
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setWatermark(true, watermarkInput.trim())
+                        showWatermarkDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RecordRed)
+                ) {
+                    Text("Save & Enable")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWatermarkDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -434,7 +763,7 @@ private fun PillSelectable(
         Text(
             text = title,
             color = if (isSelected) RecordRed else TextSecondary,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center

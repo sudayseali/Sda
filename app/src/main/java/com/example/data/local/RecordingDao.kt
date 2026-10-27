@@ -10,14 +10,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RecordingDao {
-    @Query("SELECT * FROM recordings ORDER BY createdAt DESC")
+    @Query("SELECT * FROM recordings WHERE isDeleted = 0 ORDER BY createdAt DESC")
     fun getAllRecordings(): Flow<List<RecordingEntity>>
 
-    @Query("SELECT * FROM recordings WHERE isScreenshot = 0 ORDER BY createdAt DESC")
+    @Query("SELECT * FROM recordings WHERE isScreenshot = 0 AND isDeleted = 0 ORDER BY createdAt DESC")
     fun getVideoRecordings(): Flow<List<RecordingEntity>>
 
-    @Query("SELECT * FROM recordings WHERE isScreenshot = 1 ORDER BY createdAt DESC")
+    @Query("SELECT * FROM recordings WHERE isScreenshot = 1 AND isDeleted = 0 ORDER BY createdAt DESC")
     fun getScreenshots(): Flow<List<RecordingEntity>>
+
+    @Query("SELECT * FROM recordings WHERE isDeleted = 1 ORDER BY deletedAt DESC")
+    fun getTrashItems(): Flow<List<RecordingEntity>>
 
     @Query("SELECT * FROM recordings WHERE id = :id LIMIT 1")
     suspend fun getRecordingById(id: Long): RecordingEntity?
@@ -34,8 +37,20 @@ interface RecordingDao {
     @Delete
     suspend fun deleteRecording(recording: RecordingEntity)
 
+    @Query("UPDATE recordings SET isDeleted = 1, deletedAt = :timestamp WHERE id = :id")
+    suspend fun moveToTrash(id: Long, timestamp: Long)
+
+    @Query("UPDATE recordings SET isDeleted = 0, deletedAt = 0 WHERE id = :id")
+    suspend fun restoreFromTrash(id: Long)
+
     @Query("DELETE FROM recordings WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    suspend fun deletePermanently(id: Long)
+
+    @Query("DELETE FROM recordings WHERE isDeleted = 1")
+    suspend fun clearTrash()
+
+    @Query("SELECT * FROM recordings WHERE isDeleted = 1 AND deletedAt < :cutoffTimestamp")
+    suspend fun getExpiredTrash(cutoffTimestamp: Long): List<RecordingEntity>
 
     @Query("UPDATE recordings SET title = :newTitle WHERE id = :id")
     suspend fun updateTitle(id: Long, newTitle: String)

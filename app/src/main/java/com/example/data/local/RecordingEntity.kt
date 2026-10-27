@@ -18,7 +18,9 @@ data class RecordingEntity(
     val audioSource: String,
     val createdAt: Long,
     val isFavorite: Boolean = false,
-    val isScreenshot: Boolean = false
+    val isScreenshot: Boolean = false,
+    val isDeleted: Boolean = false,
+    val deletedAt: Long = 0L
 ) {
     fun toDomainModel(): RecordingItem = RecordingItem(
         id = id,
@@ -32,7 +34,9 @@ data class RecordingEntity(
         audioSource = audioSource,
         createdAt = createdAt,
         isFavorite = isFavorite,
-        isScreenshot = isScreenshot
+        isScreenshot = isScreenshot,
+        isDeleted = isDeleted,
+        deletedAt = deletedAt
     )
 
     companion object {
@@ -48,7 +52,9 @@ data class RecordingEntity(
             audioSource = item.audioSource,
             createdAt = item.createdAt,
             isFavorite = item.isFavorite,
-            isScreenshot = item.isScreenshot
+            isScreenshot = item.isScreenshot,
+            isDeleted = item.isDeleted,
+            deletedAt = item.deletedAt
         )
     }
 }
