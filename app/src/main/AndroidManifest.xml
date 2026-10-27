@@ -62,6 +62,12 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- Invisible Magic Button overlay for gesture controls -->
+        <service
+            android:name=".service.MagicButtonService"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- FileProvider for sharing recordings securely -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -27,12 +27,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Compress
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -80,7 +83,9 @@ import coil.request.ImageRequest
 import com.example.data.model.RecordingItem
 import com.example.ui.components.DeleteConfirmDialog
 import com.example.ui.components.DetailsDialog
+import com.example.ui.components.GifMakerDialog
 import com.example.ui.components.RenameDialog
+import com.example.ui.components.VideoCompressorDialog
 import com.example.ui.components.VideoTrimmerDialog
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.RecordRed
@@ -109,13 +114,17 @@ fun GalleryScreen(
     onDeletePermanently: (RecordingItem) -> Unit = {},
     onClearTrash: () -> Unit = {},
     onTrimVideo: (RecordingItem, Long, Long) -> Unit = { _, _, _ -> },
-    onExtractAudio: (RecordingItem) -> Unit = {}
+    onExtractAudio: (RecordingItem) -> Unit = {},
+    onMakeGif: (RecordingItem, Long, Long) -> Unit = { _, _, _ -> },
+    onCompressVideo: (RecordingItem) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var itemToRename by remember { mutableStateOf<RecordingItem?>(null) }
     var itemToDelete by remember { mutableStateOf<RecordingItem?>(null) }
     var itemForDetails by remember { mutableStateOf<RecordingItem?>(null) }
     var itemToTrim by remember { mutableStateOf<RecordingItem?>(null) }
+    var itemForGif by remember { mutableStateOf<RecordingItem?>(null) }
+    var itemForCompress by remember { mutableStateOf<RecordingItem?>(null) }
     var showClearTrashConfirm by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -187,6 +196,8 @@ fun GalleryScreen(
                                 onSaveToGalleryClick = { onSaveToGallery(item) },
                                 onRenameClick = { itemToRename = item },
                                 onTrimClick = { itemToTrim = item },
+                                onMakeGifClick = { itemForGif = item },
+                                onCompressClick = { itemForCompress = item },
                                 onDeleteClick = { itemToDelete = item },
                                 onDetailsClick = { itemForDetails = item },
                                 onShareClick = { MediaUtils.shareMedia(context, item.filePath, false) },
@@ -307,6 +318,28 @@ fun GalleryScreen(
         )
     }
 
+    itemForGif?.let { item ->
+        GifMakerDialog(
+            item = item,
+            onDismiss = { itemForGif = null },
+            onGenerateGif = { startMs, durMs ->
+                onMakeGif(item, startMs, durMs)
+                itemForGif = null
+            }
+        )
+    }
+
+    itemForCompress?.let { item ->
+        VideoCompressorDialog(
+            item = item,
+            onDismiss = { itemForCompress = null },
+            onCompress = {
+                onCompressVideo(item)
+                itemForCompress = null
+            }
+        )
+    }
+
     itemToDelete?.let { item ->
         DeleteConfirmDialog(
             item = item,
@@ -359,6 +392,8 @@ private fun MediaCard(
     onSaveToGalleryClick: () -> Unit,
     onRenameClick: () -> Unit,
     onTrimClick: (() -> Unit)?,
+    onMakeGifClick: (() -> Unit)? = null,
+    onCompressClick: (() -> Unit)? = null,
     onDeleteClick: () -> Unit,
     onDetailsClick: () -> Unit,
     onShareClick: () -> Unit,
@@ -547,6 +582,26 @@ private fun MediaCard(
                                 onClick = {
                                     menuExpanded = false
                                     onTrimClick()
+                                }
+                            )
+                        }
+                        if (onMakeGifClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("Create Animated GIF", color = TextPrimary) },
+                                leadingIcon = { Icon(Icons.Default.Gif, contentDescription = null, tint = AccentCyan) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMakeGifClick()
+                                }
+                            )
+                        }
+                        if (onCompressClick != null) {
+                            DropdownMenuItem(
+                                text = { Text("Compress Video (Yaree)", color = TextPrimary) },
+                                leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null, tint = Color(0xFF4CAF50)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onCompressClick()
                                 }
                             )
                         }

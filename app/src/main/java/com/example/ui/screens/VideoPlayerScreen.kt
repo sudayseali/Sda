@@ -22,7 +22,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -54,6 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.model.RecordingItem
+import com.example.ui.components.GifMakerDialog
+import com.example.ui.components.VideoCompressorDialog
+import com.example.ui.components.VideoTrimmerDialog
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.RecordRed
 import com.example.ui.theme.StudioCardBorder
@@ -74,11 +79,15 @@ fun VideoPlayerScreen(
     onBack: () -> Unit,
     onSaveToGallery: () -> Unit = {},
     onTrim: (startMs: Long, endMs: Long) -> Unit = { _, _ -> },
-    onExtractAudio: () -> Unit = {}
+    onExtractAudio: () -> Unit = {},
+    onMakeGif: (startMs: Long, durationMs: Long) -> Unit = { _, _ -> },
+    onCompressVideo: (targetScale: Float) -> Unit = {}
 ) {
     BackHandler { onBack() }
     val context = LocalContext.current
     var showTrimmer by remember { mutableStateOf(false) }
+    var showGifMaker by remember { mutableStateOf(false) }
+    var showCompressor by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -117,6 +126,26 @@ fun VideoPlayerScreen(
                         )
                     }
                     IconButton(
+                        onClick = { showGifMaker = true },
+                        modifier = Modifier.testTag("player_gif_top_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Gif,
+                            contentDescription = "Make GIF",
+                            tint = AccentCyan
+                        )
+                    }
+                    IconButton(
+                        onClick = { showCompressor = true },
+                        modifier = Modifier.testTag("player_compress_top_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Compress,
+                            contentDescription = "Compress Video",
+                            tint = TextPrimary
+                        )
+                    }
+                    IconButton(
                         onClick = { showTrimmer = true },
                         modifier = Modifier.testTag("player_trim_button")
                     ) {
@@ -144,7 +173,7 @@ fun VideoPlayerScreen(
     ) { innerPadding ->
 
         if (showTrimmer) {
-            com.example.ui.components.VideoTrimmerDialog(
+            VideoTrimmerDialog(
                 item = item,
                 onDismiss = { showTrimmer = false },
                 onTrim = { startMs, endMs ->
@@ -157,6 +186,29 @@ fun VideoPlayerScreen(
                 }
             )
         }
+
+        if (showGifMaker) {
+            GifMakerDialog(
+                item = item,
+                onDismiss = { showGifMaker = false },
+                onMakeGif = { startMs, durationMs ->
+                    onMakeGif(startMs, durationMs)
+                    showGifMaker = false
+                }
+            )
+        }
+
+        if (showCompressor) {
+            VideoCompressorDialog(
+                item = item,
+                onDismiss = { showCompressor = false },
+                onCompress = { scale ->
+                    onCompressVideo(scale)
+                    showCompressor = false
+                }
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -209,7 +261,7 @@ fun VideoPlayerScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Action Bar Card: Save to Gallery, Share, Trim
+            // Primary Action Bar: Save to Gallery, Share, Trim
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -286,6 +338,64 @@ fun VideoPlayerScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Studio Tools Card: Make GIF & Compress Video
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = StudioSurfaceVariant),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { showGifMaker = true },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AccentCyan.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("action_player_gif_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Gif,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = AccentCyan
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Create GIF", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    OutlinedButton(
+                        onClick = { showCompressor = true },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, StudioCardBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("action_player_compress_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Compress,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Compress", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(14.dp))
 
             // Metadata & Info Card
@@ -315,6 +425,8 @@ fun VideoPlayerScreen(
                     PlayerMetaRow("Storage Location", item.filePath)
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

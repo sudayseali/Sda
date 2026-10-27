@@ -74,9 +74,13 @@ import com.example.data.model.AudioSourceType
 import com.example.data.model.AutoStopFileSizeOption
 import com.example.data.model.AutoStopTimeOption
 import com.example.data.model.CountdownOption
+import com.example.data.model.FacecamShape
+import com.example.data.model.FacecamSize
 import com.example.data.model.RecordingSettings
 import com.example.data.model.VideoBitrate
+import com.example.data.model.VideoEncoderFormat
 import com.example.data.model.VideoFps
+import com.example.data.model.VideoOrientation
 import com.example.data.model.VideoResolution
 import com.example.ui.MainViewModel
 import com.example.ui.theme.AccentCyan
@@ -180,6 +184,40 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Orientation Lock
+                Text("Video Orientation Lock", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VideoOrientation.values().forEach { orient ->
+                        PillSelectable(
+                            title = orient.label,
+                            isSelected = settings.orientation == orient,
+                            onClick = { viewModel.setOrientation(orient) },
+                            modifier = Modifier.weight(1f),
+                            testTag = "orientation_${orient.name.lowercase()}"
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Video Encoder Format
+                Text("Hardware Video Encoder (Codec)", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    VideoEncoderFormat.values().forEach { enc ->
+                        RadioOptionRow(
+                            title = enc.label,
+                            subtitle = enc.description,
+                            isSelected = settings.encoderFormat == enc,
+                            onClick = { viewModel.setEncoderFormat(enc) },
+                            testTag = "encoder_${enc.name.lowercase()}"
+                        )
+                    }
+                }
             }
         }
 
@@ -221,6 +259,29 @@ fun SettingsScreen(
                             testTag = "countdown_option_${opt.name.lowercase()}"
                         )
                     }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Smart Pause on Incoming Call
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Smart Pause on Incoming Call", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Auto-pause recording when phone rings or audio focus changes", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = settings.pauseOnCallEnabled,
+                        onCheckedChange = { viewModel.setPauseOnCall(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = RecordRed,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("settings_pause_on_call_switch")
+                    )
                 }
             }
         }
@@ -272,7 +333,7 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Facecam Overlay", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                        Text("Draggable floating front-camera window", color = TextSecondary, fontSize = 12.sp)
+                        Text("Draggable floating camera with shape & size customization", color = TextSecondary, fontSize = 12.sp)
                     }
                     Switch(
                         checked = settings.facecamEnabled,
@@ -298,6 +359,38 @@ fun SettingsScreen(
                         ),
                         modifier = Modifier.testTag("settings_facecam_switch")
                     )
+                }
+
+                if (settings.facecamEnabled) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("Facecam Shape", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FacecamShape.values().forEach { shape ->
+                            PillSelectable(
+                                title = shape.label,
+                                isSelected = settings.facecamShape == shape,
+                                onClick = { viewModel.setFacecamShape(shape) },
+                                modifier = Modifier.weight(1f),
+                                testTag = "facecam_shape_${shape.name.lowercase()}"
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("Facecam Window Size", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FacecamSize.values().forEach { size ->
+                            PillSelectable(
+                                title = size.label,
+                                isSelected = settings.facecamSize == size,
+                                onClick = { viewModel.setFacecamSize(size) },
+                                modifier = Modifier.weight(1f),
+                                testTag = "facecam_size_${size.name.lowercase()}"
+                            )
+                        }
+                    }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
@@ -393,6 +486,35 @@ fun SettingsScreen(
                             checkedTrackColor = RecordRed,
                             uncheckedTrackColor = StudioSurface
                         )
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = StudioCardBorder)
+
+                // Invisible Magic Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Invisible Magic Button", color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text("Stealth top-right touch area (Single tap = Pause, Double tap = Stop)", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = settings.magicButtonEnabled && hasOverlay,
+                        onCheckedChange = { checked ->
+                            if (checked && !hasOverlay) {
+                                onRequestOverlayPermission()
+                            } else {
+                                viewModel.setMagicButton(checked)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = AccentCyan,
+                            uncheckedTrackColor = StudioSurface
+                        ),
+                        modifier = Modifier.testTag("settings_magic_button_switch")
                     )
                 }
             }

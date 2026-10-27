@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Pause
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.AudioSourceType
 import com.example.data.model.RecordingSettings
+import com.example.data.model.VideoEncoderFormat
 import com.example.service.RecordingState
 import com.example.ui.MainViewModel
 import com.example.ui.theme.AccentCyan
@@ -210,6 +212,13 @@ fun RecordScreen(
                     AudioSourceType.INTERNAL -> Icons.AutoMirrored.Filled.VolumeUp
                     AudioSourceType.MUTE -> Icons.Default.MicOff
                 },
+                onClick = onNavigateToSettings,
+                modifier = Modifier.weight(1f)
+            )
+            QualityChip(
+                label = if (settings.encoderFormat == VideoEncoderFormat.HEVC) "HEVC" else "H.264",
+                subLabel = if (settings.encoderFormat == VideoEncoderFormat.HEVC) "50% Small" else "Codec",
+                icon = Icons.Default.HighQuality,
                 onClick = onNavigateToSettings,
                 modifier = Modifier.weight(1f)
             )

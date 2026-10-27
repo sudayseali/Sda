@@ -9,10 +9,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AudioSourceType
 import com.example.data.model.CountdownOption
+import com.example.data.model.FacecamShape
+import com.example.data.model.FacecamSize
 import com.example.data.model.RecordingItem
 import com.example.data.model.RecordingSettings
 import com.example.data.model.VideoBitrate
+import com.example.data.model.VideoEncoderFormat
 import com.example.data.model.VideoFps
+import com.example.data.model.VideoOrientation
 import com.example.data.model.VideoResolution
 import com.example.data.repository.RecordingRepository
 import com.example.data.repository.SettingsRepository
@@ -21,6 +25,7 @@ import com.example.service.RecordingService
 import com.example.service.RecordingState
 import com.example.util.MediaUtils
 import com.example.util.StorageUtils
+import com.example.util.VideoEditorUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -400,6 +405,115 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setWatermark(enabled: Boolean, text: String? = null) {
         settingsRepo.updateWatermark(enabled, text)
+    }
+
+    fun setOrientation(orientation: VideoOrientation) {
+        settingsRepo.updateOrientation(orientation)
+    }
+
+    fun setEncoderFormat(format: VideoEncoderFormat) {
+        settingsRepo.updateEncoderFormat(format)
+    }
+
+    fun setMagicButton(enabled: Boolean) {
+        settingsRepo.updateMagicButton(enabled)
+    }
+
+    fun setPauseOnCall(enabled: Boolean) {
+        settingsRepo.updatePauseOnCall(enabled)
+    }
+
+    fun setFacecamShape(shape: FacecamShape) {
+        settingsRepo.updateFacecamShape(shape)
+    }
+
+    fun setFacecamSize(size: FacecamSize) {
+        settingsRepo.updateFacecamSize(size)
+    }
+
+    fun createGif(item: RecordingItem, startMs: Long, durationMs: Long, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val picturesDir = StorageUtils.getScreenshotsDirectory(getApplication())
+                val destFile = java.io.File(picturesDir, "GIF_${System.currentTimeMillis()}_${item.title}.gif")
+                val success = VideoEditorUtils.createGifFromVideo(
+                    inputPath = item.filePath,
+                    outputPath = destFile.absolutePath,
+                    startMs = startMs,
+                    durationMs = durationMs
+                )
+                if (success && destFile.exists() && destFile.length() > 0) {
+                    val gifItem = RecordingItem(
+                        title = destFile.nameWithoutExtension,
+                        filePath = destFile.absolutePath,
+                        uriString = destFile.toURI().toString(),
+                        durationMs = durationMs,
+                        sizeBytes = destFile.length(),
+                        resolutionLabel = "GIF Animation",
+                        fps = 10,
+                        audioSource = "none",
+                        createdAt = System.currentTimeMillis(),
+                        isScreenshot = true
+                    )
+                    recordingRepo.insertRecording(gifItem)
+                    if (settings.value.autoSaveToGallery) {
+                        MediaUtils.saveImageToGallery(getApplication(), destFile, gifItem.title)
+                    }
+                    refreshStorageInfo()
+                    _userMessage.value = "GIF si guul leh ayaa loo sameeyay! (GIF Created)"
+                    onDone(true)
+                } else {
+                    _userMessage.value = "Sameynta GIF ma guuleysan (Failed to create GIF)"
+                    onDone(false)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _userMessage.value = "Khalad GIF: ${e.message}"
+                onDone(false)
+            }
+        }
+    }
+
+    fun compressVideo(item: RecordingItem, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val recordingsDir = StorageUtils.getRecordingsDirectory(getApplication())
+                val destFile = java.io.File(recordingsDir, "COMP_${System.currentTimeMillis()}_${item.title}.mp4")
+                val success = VideoEditorUtils.compressVideo(
+                    inputPath = item.filePath,
+                    outputPath = destFile.absolutePath
+                )
+                if (success && destFile.exists() && destFile.length() > 0) {
+                    val meta = MediaUtils.getVideoMetadata(destFile.absolutePath)
+                    val compressedItem = RecordingItem(
+                        title = destFile.nameWithoutExtension,
+                        filePath = destFile.absolutePath,
+                        uriString = destFile.toURI().toString(),
+                        durationMs = if (meta.durationMs > 0) meta.durationMs else item.durationMs,
+                        sizeBytes = destFile.length(),
+                        resolutionLabel = if (meta.width > 0) "${meta.width}x${meta.height}" else item.resolutionLabel,
+                        fps = item.fps,
+                        audioSource = item.audioSource,
+                        createdAt = System.currentTimeMillis(),
+                        isScreenshot = false
+                    )
+                    recordingRepo.insertRecording(compressedItem)
+                    if (settings.value.autoSaveToGallery) {
+                        MediaUtils.saveVideoToGallery(getApplication(), destFile, compressedItem.title)
+                    }
+                    refreshStorageInfo()
+                    _userMessage.value = "Fiidiyowga waa la cadaadiyay! (Compressed successfully)"
+                    onDone(true)
+                } else {
+                    _userMessage.value = "Cadaadinta fiidiyowga ma guuleysan"
+                    onDone(false)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _userMessage.value = "Khalad: ${e.message}"
+                onDone(false)
+            }
+        }
     }
 
     fun hasOverlayPermission(): Boolean {

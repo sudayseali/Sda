@@ -8,6 +8,17 @@ enum class VideoResolution(val label: String, val shortLabel: String, val width:
     SD_480P("480p SD", "480p", 480, 854)
 }
 
+enum class VideoOrientation(val label: String, val shortLabel: String) {
+    AUTO("Auto (Follow Screen)", "Auto"),
+    PORTRAIT("Portrait (9:16)", "Portrait"),
+    LANDSCAPE("Landscape (16:9 • Gaming)", "Landscape")
+}
+
+enum class VideoEncoderFormat(val label: String, val description: String) {
+    H264("H.264 / AVC", "Universally compatible with all players"),
+    HEVC("H.265 / HEVC", "50% smaller file size, high efficiency")
+}
+
 enum class VideoFps(val label: String, val value: Int) {
     FPS_60("60 FPS (Ultra Smooth)", 60),
     FPS_30("30 FPS (Standard)", 30)
@@ -49,18 +60,36 @@ enum class AutoStopFileSizeOption(val label: String, val bytes: Long) {
     GB_2("2 GB", 2048L * 1024 * 1024)
 }
 
+enum class FacecamShape(val label: String) {
+    CIRCLE("Circle"),
+    SQUARE("Square"),
+    ROUNDED_RECT("Rounded")
+}
+
+enum class FacecamSize(val label: String, val sizeDp: Int) {
+    SMALL("1x (Small)", 110),
+    MEDIUM("1.5x (Medium)", 150),
+    LARGE("2x (Large)", 190)
+}
+
 data class RecordingSettings(
     val resolution: VideoResolution = VideoResolution.FHD_1080P,
+    val orientation: VideoOrientation = VideoOrientation.AUTO,
+    val encoderFormat: VideoEncoderFormat = VideoEncoderFormat.H264,
     val fps: VideoFps = VideoFps.FPS_60,
     val bitrate: VideoBitrate = VideoBitrate.BITRATE_8M,
     val audioSource: AudioSourceType = AudioSourceType.MIC,
     val countdown: CountdownOption = CountdownOption.SEC_3,
     val floatingControlsEnabled: Boolean = true,
+    val magicButtonEnabled: Boolean = false,
     val stopOnScreenOff: Boolean = true,
+    val pauseOnCallEnabled: Boolean = true,
     val vibrationFeedback: Boolean = true,
     val highQualityAudio: Boolean = true,
     val shakeToStopEnabled: Boolean = false,
     val facecamEnabled: Boolean = false,
+    val facecamShape: FacecamShape = FacecamShape.CIRCLE,
+    val facecamSize: FacecamSize = FacecamSize.MEDIUM,
     val brushEnabled: Boolean = false,
     val showTouchesEnabled: Boolean = false,
     val autoStopTime: AutoStopTimeOption = AutoStopTimeOption.UNLIMITED,
@@ -69,4 +98,3 @@ data class RecordingSettings(
     val watermarkText: String = "Screen Recorder",
     val autoSaveToGallery: Boolean = true
 )
-

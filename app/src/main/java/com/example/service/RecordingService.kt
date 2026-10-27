@@ -26,11 +26,15 @@ import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import android.media.AudioManager
+import android.os.PowerManager
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.AudioSourceType
 import com.example.data.model.RecordingItem
 import com.example.data.model.RecordingSettings
+import com.example.data.model.VideoEncoderFormat
+import com.example.data.model.VideoOrientation
 import com.example.data.model.VideoResolution
 import com.example.data.repository.RecordingRepository
 import com.example.data.repository.SettingsRepository
@@ -71,6 +75,9 @@ class RecordingService : Service() {
     private var sensorManager: android.hardware.SensorManager? = null
     private var shakeDetector: com.example.util.ShakeDetector? = null
     private var cachedSettings: RecordingSettings? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusListener: AudioManager.OnAudioFocusChangeListener? = null
 
     private val timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
@@ -266,22 +273,56 @@ class RecordingService : Service() {
             val screenHeight = if (passedHeight > 0) passedHeight else sysMetrics.heightPixels
             val screenDensity = if (passedDensity > 0) passedDensity else sysMetrics.densityDpi
 
-            // Calculate recording dimensions maintaining aspect ratio and hardware bounds
-            val (recordWidth, recordHeight) = calculateDimensions(settings.resolution, screenWidth, screenHeight)
+            // Acquire Partial WakeLock to prevent CPU throttling/sleep during recording
+            try {
+                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ScreenRecorder::ServiceWakeLock")?.apply {
+                    acquire(4 * 60 * 60 * 1000L) // 4 hours safety limit
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "WakeLock acquire failed", e)
+            }
+
+            // Audio Focus Listener for Smart Pause on incoming calls or VoIP calls
+            if (settings.pauseOnCallEnabled) {
+                audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+                    if (cachedSettings?.pauseOnCallEnabled == true) {
+                        when (focusChange) {
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS -> {
+                                Log.i(TAG, "Audio focus lost (incoming call / audio event) -> Pausing recording")
+                                if (_recordingState.value is RecordingState.Recording) {
+                                    pauseRecording()
+                                }
+                            }
+                            AudioManager.AUDIOFOCUS_GAIN -> {
+                                Log.i(TAG, "Audio focus regained -> Resuming recording")
+                                if (_recordingState.value is RecordingState.Paused) {
+                                    resumeRecording()
+                                }
+                            }
+                        }
+                    }
+                }
+                @Suppress("DEPRECATION")
+                audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            }
+
+            // Calculate recording dimensions maintaining aspect ratio, orientation and hardware bounds
+            val (recordWidth, recordHeight) = calculateDimensions(settings.resolution, screenWidth, screenHeight, settings.orientation)
 
             val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                mediaProjection?.registerCallback(object : MediaProjection.Callback() {
-                    override fun onStop() {
-                        if (!isStoppingOrCleaningUp) {
-                            Log.i(TAG, "MediaProjection stopped by system, terminating session")
-                            stopRecording()
-                        }
+            // Register MediaProjection callback across ALL Android versions (API 21+)
+            mediaProjection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    if (!isStoppingOrCleaningUp) {
+                        Log.i(TAG, "MediaProjection stopped by system, terminating session")
+                        stopRecording()
                     }
-                }, Handler(Looper.getMainLooper()))
-            }
+                }
+            }, Handler(Looper.getMainLooper()))
 
             val recordingsDir = StorageUtils.getRecordingsDirectory(this)
             val fileName = "REC_${TimeUtils.formatFileTimestamp()}.mp4"
@@ -317,6 +358,15 @@ class RecordingService : Service() {
                 startFloatingControls()
             }
 
+            // Launch Invisible Magic Button if enabled
+            if (settings.magicButtonEnabled) {
+                try {
+                    startService(Intent(this, MagicButtonService::class.java).apply { action = MagicButtonService.ACTION_SHOW })
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start MagicButtonService", e)
+                }
+            }
+
             // Launch Facecam if enabled
             if (settings.facecamEnabled) {
                 try {
@@ -349,10 +399,20 @@ class RecordingService : Service() {
         }
     }
 
-    private fun calculateDimensions(resolution: VideoResolution, screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+    private fun calculateDimensions(
+        resolution: VideoResolution,
+        screenWidth: Int,
+        screenHeight: Int,
+        orientation: VideoOrientation
+    ): Pair<Int, Int> {
         val safeScreenWidth = if (screenWidth > 0) screenWidth else 1080
         val safeScreenHeight = if (screenHeight > 0) screenHeight else 1920
-        val isPortrait = safeScreenHeight >= safeScreenWidth
+
+        val isPortrait = when (orientation) {
+            VideoOrientation.PORTRAIT -> true
+            VideoOrientation.LANDSCAPE -> false
+            VideoOrientation.AUTO -> safeScreenHeight >= safeScreenWidth
+        }
 
         val maxLongSide = when (resolution) {
             VideoResolution.AUTO -> if (isPortrait) minOf(safeScreenHeight, 1920) else minOf(safeScreenWidth, 1920)
@@ -362,28 +422,27 @@ class RecordingService : Service() {
             VideoResolution.SD_480P -> 854
         }
 
+        val primaryLong = maxOf(safeScreenWidth, safeScreenHeight)
+        val primaryShort = minOf(safeScreenWidth, safeScreenHeight)
+        val targetLong = minOf(primaryLong, maxLongSide)
+        val scale = targetLong.toDouble() / primaryLong.coerceAtLeast(1).toDouble()
+        val targetShort = (primaryShort * scale).toInt()
+
         var width: Int
         var height: Int
-
         if (isPortrait) {
-            val targetHeight = minOf(safeScreenHeight, maxLongSide)
-            val scale = targetHeight.toDouble() / safeScreenHeight.coerceAtLeast(1).toDouble()
-            height = targetHeight
-            width = (safeScreenWidth * scale).toInt()
+            width = targetShort
+            height = targetLong
         } else {
-            val targetWidth = minOf(safeScreenWidth, maxLongSide)
-            val scale = targetWidth.toDouble() / safeScreenWidth.coerceAtLeast(1).toDouble()
-            width = targetWidth
-            height = (safeScreenHeight * scale).toInt()
+            width = targetLong
+            height = targetShort
         }
 
-        // Must be even numbers for H.264 encoder
+        // Must be even numbers for H.264/HEVC encoder
         if (width % 2 != 0) width -= 1
         if (height % 2 != 0) height -= 1
-
         width = width.coerceIn(320, 2560)
         height = height.coerceIn(320, 2560)
-
         return Pair(width, height)
     }
 
@@ -414,17 +473,30 @@ class RecordingService : Service() {
             recorder.setAudioSamplingRate(44_100)
         }
 
-        recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+        val useHevc = (settings.encoderFormat == VideoEncoderFormat.HEVC) && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+        val primaryEncoder = if (useHevc) MediaRecorder.VideoEncoder.HEVC else MediaRecorder.VideoEncoder.H264
+        recorder.setVideoEncoder(primaryEncoder)
         recorder.setVideoSize(width, height)
         recorder.setVideoFrameRate(settings.fps.value.coerceIn(24, 60))
         recorder.setVideoEncodingBitRate(settings.bitrate.value.coerceIn(2_000_000, 16_000_000))
-
         recorder.setOutputFile(currentOutputFile?.absolutePath)
+
+        recorder.setOnErrorListener { _, what, extra ->
+            Log.e(TAG, "MediaRecorder error listener: what=$what, extra=$extra")
+            stopRecording()
+        }
+        recorder.setOnInfoListener { _, what, _ ->
+            if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED ||
+                what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED) {
+                Log.i(TAG, "MediaRecorder limit reached, stopping cleanly")
+                stopRecording()
+            }
+        }
 
         try {
             recorder.prepare()
         } catch (e: Exception) {
-            Log.w(TAG, "MediaRecorder prepare failed with $width x $height, falling back to safe 720p/1080p profile", e)
+            Log.w(TAG, "MediaRecorder prepare failed with $width x $height, falling back to safe 720p/1080p H.264 profile", e)
             recorder.reset()
             if (useMic) {
                 recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -741,6 +813,26 @@ class RecordingService : Service() {
 
         try {
             startService(Intent(this, BrushOverlayService::class.java).apply { action = BrushOverlayService.ACTION_HIDE })
+        } catch (ignored: Exception) {}
+
+        try {
+            startService(Intent(this, MagicButtonService::class.java).apply { action = MagicButtonService.ACTION_HIDE })
+        } catch (ignored: Exception) {}
+
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+            wakeLock = null
+        } catch (ignored: Exception) {}
+
+        try {
+            audioFocusListener?.let {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(it)
+            }
+            audioFocusListener = null
+            audioManager = null
         } catch (ignored: Exception) {}
 
         currentOutputFile = null

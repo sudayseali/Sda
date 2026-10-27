@@ -194,7 +194,9 @@ fun ScreenRecorderApp(
                 onBack = { viewModel.selectMediaForView(null) },
                 onSaveToGallery = { viewModel.saveMediaToGallery(selectedMedia!!) },
                 onTrim = { startMs, endMs -> viewModel.trimVideo(selectedMedia!!, startMs, endMs) {} },
-                onExtractAudio = { viewModel.extractAudio(selectedMedia!!) {} }
+                onExtractAudio = { viewModel.extractAudio(selectedMedia!!) {} },
+                onMakeGif = { startMs, durMs -> viewModel.createGif(selectedMedia!!, startMs, durMs) {} },
+                onCompressVideo = { _ -> viewModel.compressVideo(selectedMedia!!) {} }
             )
         } else {
             Scaffold(
@@ -309,7 +311,9 @@ fun ScreenRecorderApp(
                             onDeletePermanently = { viewModel.deletePermanently(it) },
                             onClearTrash = { viewModel.clearTrash() },
                             onTrimVideo = { item, startMs, endMs -> viewModel.trimVideo(item, startMs, endMs) {} },
-                            onExtractAudio = { item -> viewModel.extractAudio(item) {} }
+                            onExtractAudio = { item -> viewModel.extractAudio(item) {} },
+                            onMakeGif = { item, startMs, durMs -> viewModel.createGif(item, startMs, durMs) {} },
+                            onCompressVideo = { item -> viewModel.compressVideo(item) {} }
                         )
                         2 -> SettingsScreen(
                             viewModel = viewModel,
