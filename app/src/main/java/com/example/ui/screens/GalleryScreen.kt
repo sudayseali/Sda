@@ -322,7 +322,7 @@ fun GalleryScreen(
         GifMakerDialog(
             item = item,
             onDismiss = { itemForGif = null },
-            onGenerateGif = { startMs, durMs ->
+            onMakeGif = { startMs, durMs ->
                 onMakeGif(item, startMs, durMs)
                 itemForGif = null
             }
