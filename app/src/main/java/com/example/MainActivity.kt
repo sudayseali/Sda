@@ -17,17 +17,33 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -35,6 +51,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,19 +60,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.model.AudioSourceType
+import com.example.service.RecordingState
 import com.example.ui.MainViewModel
 import com.example.ui.components.CountdownOverlay
 import com.example.ui.screens.GalleryScreen
 import com.example.ui.screens.RecordScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.VideoPlayerScreen
+import com.example.ui.theme.AccentCyan
+import com.example.ui.theme.AccentGreen
 import com.example.ui.theme.RecordRed
 import com.example.ui.theme.ScreenRecorderTheme
 import com.example.ui.theme.StudioCardBorder
@@ -63,6 +86,7 @@ import com.example.ui.theme.StudioDarkBg
 import com.example.ui.theme.StudioSurface
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
+import com.example.util.TimeUtils
 
 class MainActivity : ComponentActivity() {
 
@@ -207,6 +231,7 @@ fun ScreenRecorderApp(
                         containerColor = StudioSurface,
                         contentColor = TextPrimary,
                         modifier = Modifier
+                            .border(1.dp, Color(0x1AFFFFFF))
                             .windowInsetsPadding(WindowInsets.navigationBars)
                             .testTag("main_bottom_nav")
                     ) {
@@ -237,11 +262,24 @@ fun ScreenRecorderApp(
                             selected = currentTab == 1,
                             onClick = { currentTab = 1 },
                             icon = {
-                                Icon(
-                                    imageVector = Icons.Default.VideoLibrary,
-                                    contentDescription = "Gallery",
-                                    tint = if (currentTab == 1) RecordRed else TextSecondary
-                                )
+                                BadgedBox(
+                                    badge = {
+                                        if (videos.isNotEmpty()) {
+                                            Badge(
+                                                containerColor = RecordRed,
+                                                contentColor = Color.White
+                                            ) {
+                                                Text("${videos.size}")
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VideoLibrary,
+                                        contentDescription = "Gallery",
+                                        tint = if (currentTab == 1) RecordRed else TextSecondary
+                                    )
+                                }
                             },
                             label = {
                                 Text(
@@ -281,12 +319,57 @@ fun ScreenRecorderApp(
                     }
                 }
             ) { paddingValues ->
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
                         .windowInsetsPadding(WindowInsets.safeDrawing)
                 ) {
+                    val isLiveRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Paused
+                    if (currentTab != 0 && isLiveRecording) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { currentTab = 0 },
+                            shape = RoundedCornerShape(16.dp),
+                            color = RecordRed.copy(alpha = 0.18f),
+                            border = BorderStroke(1.dp, RecordRed.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(RecordRed)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "RECORDING LIVE • ${TimeUtils.formatDuration(durationMs)}",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = "TAP TO VIEW ›",
+                                    color = RecordRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
                     when (currentTab) {
                         0 -> RecordScreen(
                             viewModel = viewModel,
@@ -324,10 +407,13 @@ fun ScreenRecorderApp(
                 }
             }
         }
+    }
 
-        // Live countdown overlay when active
-        countdown?.let { sec ->
-            CountdownOverlay(secondsLeft = sec)
-        }
+    // Live countdown overlay when active
+    countdown?.let { sec ->
+        CountdownOverlay(secondsLeft = sec)
     }
 }
+}
+
+

@@ -14,10 +14,16 @@ val StudioCardBorder = Color(0xFF2C2F3F)
 val AccentCyan = Color(0xFF00E5FF)
 val AccentGreen = Color(0xFF00E676)
 val AccentAmber = Color(0xFFFFB300)
+val NeonPurple = Color(0xFFA855F7)
+val NeonCoral = Color(0xFFFF5252)
+val GlassSurface = Color(0x401E2130)
+val GlassBorder = Color(0x26FFFFFF)
+val GlowAmbientRed = Color(0x33FF334B)
+val GlowAmbientCyan = Color(0x2600E5FF)
 
-val TextPrimary = Color(0xFFF5F6FA)
-val TextSecondary = Color(0xFFA0A5B5)
-val TextTertiary = Color(0xFF6F7487)
+val TextPrimary = Color(0xFFF8F9FD)
+val TextSecondary = Color(0xFFA5ABC0)
+val TextTertiary = Color(0xFF6E748B)
 
 val DarkColorScheme = androidx.compose.material3.darkColorScheme(
     primary = RecordRed,
