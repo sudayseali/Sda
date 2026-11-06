@@ -31,7 +31,6 @@ abstract class AppDatabase : RoomDatabase() {
                     "screen_recorder.db"
                 )
                     .addMigrations(MIGRATION_1_2)
-                    .fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = instance
                 instance

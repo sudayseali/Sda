@@ -8,8 +8,11 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -32,12 +35,19 @@ class FloatingControlService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var windowManager: WindowManager? = null
-    private var floatingRootView: View? = null
+    private var floatingRootView: LinearLayout? = null
     private var layoutParams: WindowManager.LayoutParams? = null
 
     private var isExpanded = false
     private var timerTextView: TextView? = null
     private var pauseResumeIcon: ImageView? = null
+
+    private val autoCollapseHandler = Handler(Looper.getMainLooper())
+    private val autoCollapseRunnable = Runnable {
+        if (isExpanded) {
+            toggleExpanded(forceCollapse = true)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -73,14 +83,14 @@ class FloatingControlService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 40
-            y = 200
+            x = 30
+            y = 220
         }
 
         val container = createFloatingWidgetLayout()
         floatingRootView = container
 
-        // Drag and touch handling
+        // Drag, snap, and touch handling
         container.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
@@ -90,24 +100,44 @@ class FloatingControlService : Service() {
 
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 val params = layoutParams ?: return false
+                val rawX = event.rawX
+                val rawY = event.rawY
+
+                // Reset auto-collapse timer on user interaction
+                resetAutoCollapseTimer()
+
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params.x
                         initialY = params.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
+                        initialTouchX = rawX
+                        initialTouchY = rawY
                         isDragging = false
+
+                        // If expanded, check if touch hit any child action button
+                        if (isExpanded) {
+                            val actionContainer = container.findViewWithTag<LinearLayout>(TAG_EXPANDED_ACTIONS)
+                            if (actionContainer != null && isTouchInsideView(actionContainer, rawX, rawY)) {
+                                // Touch inside action container -> let children handle clicks
+                                return false
+                            }
+                        }
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        val dx = (event.rawX - initialTouchX).toInt()
-                        val dy = (event.rawY - initialTouchY).toInt()
-                        if (abs(dx) > 10 || abs(dy) > 10) {
+                        val dx = (rawX - initialTouchX).toInt()
+                        val dy = (rawY - initialTouchY).toInt()
+                        if (abs(dx) > 12 || abs(dy) > 12) {
                             isDragging = true
                         }
                         if (isDragging) {
-                            params.x = initialX + dx
-                            params.y = initialY + dy
+                            val screenBounds = getScreenDimensions()
+                            val viewWidth = container.width.coerceAtLeast(dp(120))
+                            val viewHeight = container.height.coerceAtLeast(dp(40))
+
+                            params.x = (initialX + dx).coerceIn(0, (screenBounds.first - viewWidth).coerceAtLeast(0))
+                            params.y = (initialY + dy).coerceIn(dp(20), (screenBounds.second - viewHeight - dp(40)).coerceAtLeast(0))
+
                             try {
                                 windowManager?.updateViewLayout(container, params)
                             } catch (ignored: Exception) {}
@@ -115,7 +145,19 @@ class FloatingControlService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!isDragging) {
+                        if (isDragging) {
+                            // Gentle edge snapping
+                            val screenBounds = getScreenDimensions()
+                            val viewWidth = container.width.coerceAtLeast(dp(120))
+                            val midX = screenBounds.first / 2
+                            val targetX = if (params.x + (viewWidth / 2) < midX) 16 else (screenBounds.first - viewWidth - 16).coerceAtLeast(0)
+
+                            params.x = targetX
+                            try {
+                                windowManager?.updateViewLayout(container, params)
+                            } catch (ignored: Exception) {}
+                        } else {
+                            // Simple tap on bubble -> toggle expand/collapse
                             toggleExpanded()
                         }
                         return true
@@ -134,13 +176,29 @@ class FloatingControlService : Service() {
         observeRecordingStatus()
     }
 
+    private fun isTouchInsideView(view: View, rawX: Float, rawY: Float): Boolean {
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        val x = location[0]
+        val y = location[1]
+        return rawX >= x && rawX <= (x + view.width) && rawY >= y && rawY <= (y + view.height)
+    }
+
+    private fun getScreenDimensions(): Pair<Int, Int> {
+        val wm = windowManager ?: getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(metrics)
+        return Pair(metrics.widthPixels, metrics.heightPixels)
+    }
+
     private fun createFloatingWidgetLayout(): LinearLayout {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E6181A22"))
+                setColor(Color.parseColor("#EE141724"))
                 cornerRadius = dp(24).toFloat()
                 setStroke(dp(1), Color.parseColor("#44FF334B"))
             }
@@ -178,98 +236,115 @@ class FloatingControlService : Service() {
             setPadding(dp(8), 0, 0, 0)
         }
 
-        // Pause/Resume button
-        val pauseBtn = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_media_pause)
-            setColorFilter(Color.WHITE)
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener {
-                val state = RecordingService.recordingState.value
-                val intent = Intent(this@FloatingControlService, RecordingService::class.java).apply {
-                    action = if (state is RecordingState.Paused) {
-                        RecordingService.ACTION_RESUME
-                    } else {
-                        RecordingService.ACTION_PAUSE
-                    }
+        // Helper to build action icon buttons with generous 48dp touch target
+        fun createActionButton(
+            iconRes: Int,
+            tintColor: Int,
+            contentDesc: String,
+            onClick: () -> Unit
+        ): ImageView {
+            val size = dp(36)
+            return ImageView(this).apply {
+                setImageResource(iconRes)
+                setColorFilter(tintColor)
+                contentDescription = contentDesc
+                setPadding(dp(7), dp(7), dp(7), dp(7))
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    marginStart = dp(4)
                 }
-                startService(intent)
+                setOnClickListener {
+                    resetAutoCollapseTimer()
+                    onClick()
+                }
             }
+        }
+
+        // Pause/Resume button
+        val pauseBtn = createActionButton(
+            iconRes = android.R.drawable.ic_media_pause,
+            tintColor = Color.WHITE,
+            contentDesc = "Pause or Resume Recording"
+        ) {
+            val state = RecordingService.recordingState.value
+            val intent = Intent(this@FloatingControlService, RecordingService::class.java).apply {
+                action = if (state is RecordingState.Paused) {
+                    RecordingService.ACTION_RESUME
+                } else {
+                    RecordingService.ACTION_PAUSE
+                }
+            }
+            startService(intent)
         }
         pauseResumeIcon = pauseBtn
         actionContainer.addView(pauseBtn)
 
         // Stop button
-        val stopBtn = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(Color.parseColor("#FF334B"))
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener {
-                val intent = Intent(this@FloatingControlService, RecordingService::class.java).apply {
-                    action = RecordingService.ACTION_STOP
-                }
-                startService(intent)
-                hideFloatingView()
+        val stopBtn = createActionButton(
+            iconRes = android.R.drawable.ic_menu_close_clear_cancel,
+            tintColor = Color.parseColor("#FF334B"),
+            contentDesc = "Stop Recording"
+        ) {
+            val intent = Intent(this@FloatingControlService, RecordingService::class.java).apply {
+                action = RecordingService.ACTION_STOP
             }
+            startService(intent)
+            hideFloatingView()
         }
         actionContainer.addView(stopBtn)
 
         // Screenshot button
-        val shotBtn = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_camera)
-            setColorFilter(Color.parseColor("#00E5FF"))
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener {
-                val intent = Intent(this@FloatingControlService, RecordingService::class.java).apply {
-                    action = RecordingService.ACTION_SCREENSHOT
-                }
-                startService(intent)
+        val shotBtn = createActionButton(
+            iconRes = android.R.drawable.ic_menu_camera,
+            tintColor = Color.parseColor("#00E5FF"),
+            contentDesc = "Take Screenshot"
+        ) {
+            val intent = Intent(this@FloatingControlService, RecordingService::class.java).apply {
+                action = RecordingService.ACTION_SCREENSHOT
             }
+            startService(intent)
         }
         actionContainer.addView(shotBtn)
 
         // Facecam button
         var isFacecamShowing = false
-        val facecamBtn = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_myplaces)
-            setColorFilter(Color.parseColor("#4CAF50"))
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener {
-                isFacecamShowing = !isFacecamShowing
-                val intent = Intent(this@FloatingControlService, FacecamService::class.java).apply {
-                    action = if (isFacecamShowing) FacecamService.ACTION_SHOW else FacecamService.ACTION_HIDE
-                }
-                startService(intent)
+        val facecamBtn = createActionButton(
+            iconRes = android.R.drawable.ic_menu_myplaces,
+            tintColor = Color.parseColor("#4CAF50"),
+            contentDesc = "Toggle Facecam Window"
+        ) {
+            isFacecamShowing = !isFacecamShowing
+            val intent = Intent(this@FloatingControlService, FacecamService::class.java).apply {
+                action = if (isFacecamShowing) FacecamService.ACTION_SHOW else FacecamService.ACTION_HIDE
             }
+            startService(intent)
         }
         actionContainer.addView(facecamBtn)
 
         // Screen Brush / Drawing Tool button
         var isBrushShowing = false
-        val brushBtn = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_edit)
-            setColorFilter(Color.parseColor("#E040FB"))
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener {
-                isBrushShowing = !isBrushShowing
-                val intent = Intent(this@FloatingControlService, BrushOverlayService::class.java).apply {
-                    action = if (isBrushShowing) BrushOverlayService.ACTION_SHOW else BrushOverlayService.ACTION_HIDE
-                }
-                startService(intent)
+        val brushBtn = createActionButton(
+            iconRes = android.R.drawable.ic_menu_edit,
+            tintColor = Color.parseColor("#E040FB"),
+            contentDesc = "Toggle Drawing Brush Overlay"
+        ) {
+            isBrushShowing = !isBrushShowing
+            val intent = Intent(this@FloatingControlService, BrushOverlayService::class.java).apply {
+                action = if (isBrushShowing) BrushOverlayService.ACTION_SHOW else BrushOverlayService.ACTION_HIDE
             }
+            startService(intent)
         }
         actionContainer.addView(brushBtn)
 
         // Open App button
-        val appBtn = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_revert)
-            setColorFilter(Color.parseColor("#FFAA00"))
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-            setOnClickListener {
-                val intent = Intent(this@FloatingControlService, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                startActivity(intent)
+        val appBtn = createActionButton(
+            iconRes = android.R.drawable.ic_menu_revert,
+            tintColor = Color.parseColor("#FFAA00"),
+            contentDesc = "Return to Main Application Screen"
+        ) {
+            val intent = Intent(this@FloatingControlService, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
+            startActivity(intent)
         }
         actionContainer.addView(appBtn)
 
@@ -277,11 +352,31 @@ class FloatingControlService : Service() {
         return root
     }
 
-    private fun toggleExpanded() {
-        val root = floatingRootView as? LinearLayout ?: return
+    private fun toggleExpanded(forceCollapse: Boolean = false) {
+        val root = floatingRootView ?: return
         val actions = root.findViewWithTag<View>(TAG_EXPANDED_ACTIONS) ?: return
-        isExpanded = !isExpanded
+
+        isExpanded = if (forceCollapse) false else !isExpanded
         actions.visibility = if (isExpanded) View.VISIBLE else View.GONE
+
+        if (isExpanded) {
+            resetAutoCollapseTimer()
+        } else {
+            autoCollapseHandler.removeCallbacks(autoCollapseRunnable)
+        }
+
+        // Update layout dimensions in WindowManager
+        try {
+            val params = layoutParams ?: return
+            windowManager?.updateViewLayout(root, params)
+        } catch (ignored: Exception) {}
+    }
+
+    private fun resetAutoCollapseTimer() {
+        autoCollapseHandler.removeCallbacks(autoCollapseRunnable)
+        if (isExpanded) {
+            autoCollapseHandler.postDelayed(autoCollapseRunnable, 5000L) // 5s auto-collapse
+        }
     }
 
     private fun observeRecordingStatus() {
@@ -310,6 +405,7 @@ class FloatingControlService : Service() {
     }
 
     private fun hideFloatingView() {
+        autoCollapseHandler.removeCallbacks(autoCollapseRunnable)
         floatingRootView?.let { view ->
             try {
                 windowManager?.removeView(view)

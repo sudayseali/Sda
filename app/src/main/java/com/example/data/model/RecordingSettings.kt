@@ -96,5 +96,10 @@ data class RecordingSettings(
     val autoStopFileSize: AutoStopFileSizeOption = AutoStopFileSizeOption.UNLIMITED,
     val watermarkEnabled: Boolean = false,
     val watermarkText: String = "Screen Recorder",
-    val autoSaveToGallery: Boolean = true
+    val autoSaveToGallery: Boolean = true,
+    val internalAudioEnabled: Boolean = true,
+    val micAudioEnabled: Boolean = true,
+    val internalAudioVolume: Float = 0.8f,
+    val micAudioVolume: Float = 0.7f,
+    val recordingMode: String = "Standard"
 )

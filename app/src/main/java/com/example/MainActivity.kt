@@ -40,8 +40,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -63,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -228,36 +234,37 @@ fun ScreenRecorderApp(
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 bottomBar = {
                     NavigationBar(
-                        containerColor = StudioSurface,
+                        containerColor = Color(0xFF0F111A),
                         contentColor = TextPrimary,
                         modifier = Modifier
                             .border(1.dp, Color(0x1AFFFFFF))
                             .windowInsetsPadding(WindowInsets.navigationBars)
                             .testTag("main_bottom_nav")
                     ) {
+                        // 1. Home Tab
                         NavigationBarItem(
                             selected = currentTab == 0,
                             onClick = { currentTab = 0 },
                             icon = {
                                 Icon(
-                                    imageVector = Icons.Default.FiberManualRecord,
-                                    contentDescription = "Record",
-                                    tint = if (currentTab == 0) RecordRed else TextSecondary
+                                    imageVector = Icons.Default.Home,
+                                    contentDescription = "Home",
+                                    tint = if (currentTab == 0) AccentCyan else TextSecondary
                                 )
                             },
                             label = {
                                 Text(
-                                    text = "Record",
-                                    color = if (currentTab == 0) RecordRed else TextSecondary,
-                                    fontWeight = if (currentTab == 0) FontWeight.Bold else FontWeight.Normal
+                                    text = "Home",
+                                    color = if (currentTab == 0) AccentCyan else TextSecondary,
+                                    fontWeight = if (currentTab == 0) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp
                                 )
                             },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = RecordRed.copy(alpha = 0.2f)
-                            ),
-                            modifier = Modifier.testTag("nav_record_tab")
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = AccentCyan.copy(alpha = 0.15f)),
+                            modifier = Modifier.testTag("nav_home_tab")
                         )
 
+                        // 2. Recordings Tab
                         NavigationBarItem(
                             selected = currentTab == 1,
                             onClick = { currentTab = 1 },
@@ -265,56 +272,112 @@ fun ScreenRecorderApp(
                                 BadgedBox(
                                     badge = {
                                         if (videos.isNotEmpty()) {
-                                            Badge(
-                                                containerColor = RecordRed,
-                                                contentColor = Color.White
-                                            ) {
+                                            Badge(containerColor = RecordRed, contentColor = Color.White) {
                                                 Text("${videos.size}")
                                             }
                                         }
                                     }
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.VideoLibrary,
-                                        contentDescription = "Gallery",
-                                        tint = if (currentTab == 1) RecordRed else TextSecondary
+                                        imageVector = Icons.Default.Folder,
+                                        contentDescription = "Recordings",
+                                        tint = if (currentTab == 1) AccentCyan else TextSecondary
                                     )
                                 }
                             },
                             label = {
                                 Text(
                                     text = "Recordings",
-                                    color = if (currentTab == 1) RecordRed else TextSecondary,
-                                    fontWeight = if (currentTab == 1) FontWeight.Bold else FontWeight.Normal
+                                    color = if (currentTab == 1) AccentCyan else TextSecondary,
+                                    fontWeight = if (currentTab == 1) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp
                                 )
                             },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = RecordRed.copy(alpha = 0.2f)
-                            ),
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = AccentCyan.copy(alpha = 0.15f)),
                             modifier = Modifier.testTag("nav_gallery_tab")
                         )
 
+                        // 3. Center Elevated Action Button (Record Trigger)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    val isLiveRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Paused
+                                    if (isLiveRecording) {
+                                        viewModel.stopRecording()
+                                    } else {
+                                        onRequestRecord()
+                                    }
+                                }
+                                .testTag("nav_center_trigger"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFF8B5CF6), Color(0xFF3B82F6), Color(0xFF06B6D4))
+                                        )
+                                    )
+                                    .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val isLiveRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Paused
+                                Icon(
+                                    imageVector = if (isLiveRecording) Icons.Default.FiberManualRecord else Icons.Default.Videocam,
+                                    contentDescription = "Trigger Record",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+
+                        // 4. Tools Tab
                         NavigationBarItem(
                             selected = currentTab == 2,
                             onClick = { currentTab = 2 },
                             icon = {
                                 Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Settings",
-                                    tint = if (currentTab == 2) RecordRed else TextSecondary
+                                    imageVector = Icons.Default.PlayCircle,
+                                    contentDescription = "Tools",
+                                    tint = if (currentTab == 2) AccentCyan else TextSecondary
                                 )
                             },
                             label = {
                                 Text(
-                                    text = "Settings",
-                                    color = if (currentTab == 2) RecordRed else TextSecondary,
-                                    fontWeight = if (currentTab == 2) FontWeight.Bold else FontWeight.Normal
+                                    text = "Tools",
+                                    color = if (currentTab == 2) AccentCyan else TextSecondary,
+                                    fontWeight = if (currentTab == 2) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp
                                 )
                             },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = RecordRed.copy(alpha = 0.2f)
-                            ),
-                            modifier = Modifier.testTag("nav_settings_tab")
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = AccentCyan.copy(alpha = 0.15f)),
+                            modifier = Modifier.testTag("nav_tools_tab")
+                        )
+
+                        // 5. Profile / Settings Tab
+                        NavigationBarItem(
+                            selected = currentTab == 3,
+                            onClick = { currentTab = 3 },
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "Profile",
+                                    tint = if (currentTab == 3) AccentCyan else TextSecondary
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = "Profile",
+                                    color = if (currentTab == 3) AccentCyan else TextSecondary,
+                                    fontWeight = if (currentTab == 3) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = AccentCyan.copy(alpha = 0.15f)),
+                            modifier = Modifier.testTag("nav_profile_tab")
                         )
                     }
                 }
@@ -370,43 +433,60 @@ fun ScreenRecorderApp(
                     }
 
                     Box(modifier = Modifier.weight(1f)) {
-                    when (currentTab) {
-                        0 -> RecordScreen(
-                            viewModel = viewModel,
-                            recordingState = recordingState,
-                            durationMs = durationMs,
-                            settings = settings,
-                            storageInfo = storageInfo,
-                            onStartRecordingClick = onRequestRecord,
-                            onRequestOverlayPermission = onRequestOverlayPermission,
-                            onNavigateToSettings = { currentTab = 2 }
-                        )
-                        1 -> GalleryScreen(
-                            videoList = videos,
-                            screenshotList = screenshots,
-                            trashList = trashRecordings,
-                            onPlayVideo = { viewModel.selectMediaForView(it) },
-                            onSaveToGallery = { viewModel.saveMediaToGallery(it) },
-                            onRename = { item, newTitle -> viewModel.renameMedia(item, newTitle) },
-                            onDelete = { item -> viewModel.deleteMedia(item) },
-                            onToggleFavorite = { item -> viewModel.toggleFavorite(item) },
-                            onRestoreFromTrash = { viewModel.restoreFromTrash(it) },
-                            onDeletePermanently = { viewModel.deletePermanently(it) },
-                            onClearTrash = { viewModel.clearTrash() },
-                            onTrimVideo = { item, startMs, endMs -> viewModel.trimVideo(item, startMs, endMs) {} },
-                            onExtractAudio = { item -> viewModel.extractAudio(item) {} },
-                            onMakeGif = { item, startMs, durMs -> viewModel.createGif(item, startMs, durMs) {} },
-                            onCompressVideo = { item -> viewModel.compressVideo(item) {} }
-                        )
-                        2 -> SettingsScreen(
-                            viewModel = viewModel,
-                            settings = settings,
-                            onRequestOverlayPermission = onRequestOverlayPermission
-                        )
+                        when (currentTab) {
+                            0 -> RecordScreen(
+                                viewModel = viewModel,
+                                recordingState = recordingState,
+                                durationMs = durationMs,
+                                settings = settings,
+                                storageInfo = storageInfo,
+                                onStartRecordingClick = onRequestRecord,
+                                onRequestOverlayPermission = onRequestOverlayPermission,
+                                onNavigateToSettings = { currentTab = 3 }
+                            )
+                            1 -> GalleryScreen(
+                                videoList = videos,
+                                screenshotList = screenshots,
+                                trashList = trashRecordings,
+                                onPlayVideo = { viewModel.selectMediaForView(it) },
+                                onSaveToGallery = { viewModel.saveMediaToGallery(it) },
+                                onRename = { item, newTitle -> viewModel.renameMedia(item, newTitle) },
+                                onDelete = { item -> viewModel.deleteMedia(item) },
+                                onToggleFavorite = { item -> viewModel.toggleFavorite(item) },
+                                onRestoreFromTrash = { viewModel.restoreFromTrash(it) },
+                                onDeletePermanently = { viewModel.deletePermanently(it) },
+                                onClearTrash = { viewModel.clearTrash() },
+                                onTrimVideo = { item, startMs, endMs -> viewModel.trimVideo(item, startMs, endMs) {} },
+                                onExtractAudio = { item -> viewModel.extractAudio(item) {} },
+                                onMakeGif = { item, startMs, durMs -> viewModel.createGif(item, startMs, durMs) {} },
+                                onCompressVideo = { item -> viewModel.compressVideo(item) {} }
+                            )
+                            2 -> GalleryScreen(
+                                videoList = videos,
+                                screenshotList = screenshots,
+                                trashList = trashRecordings,
+                                onPlayVideo = { viewModel.selectMediaForView(it) },
+                                onSaveToGallery = { viewModel.saveMediaToGallery(it) },
+                                onRename = { item, newTitle -> viewModel.renameMedia(item, newTitle) },
+                                onDelete = { item -> viewModel.deleteMedia(item) },
+                                onToggleFavorite = { item -> viewModel.toggleFavorite(item) },
+                                onRestoreFromTrash = { viewModel.restoreFromTrash(it) },
+                                onDeletePermanently = { viewModel.deletePermanently(it) },
+                                onClearTrash = { viewModel.clearTrash() },
+                                onTrimVideo = { item, startMs, endMs -> viewModel.trimVideo(item, startMs, endMs) {} },
+                                onExtractAudio = { item -> viewModel.extractAudio(item) {} },
+                                onMakeGif = { item, startMs, durMs -> viewModel.createGif(item, startMs, durMs) {} },
+                                onCompressVideo = { item -> viewModel.compressVideo(item) {} }
+                            )
+                            3 -> SettingsScreen(
+                                viewModel = viewModel,
+                                settings = settings,
+                                onRequestOverlayPermission = onRequestOverlayPermission
+                            )
+                        }
                     }
                 }
             }
-        }
     }
 
     // Live countdown overlay when active

@@ -431,6 +431,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settingsRepo.updateFacecamSize(size)
     }
 
+    fun setInternalAudioEnabled(enabled: Boolean) {
+        settingsRepo.updateInternalAudioEnabled(enabled)
+    }
+
+    fun setMicAudioEnabled(enabled: Boolean) {
+        settingsRepo.updateMicAudioEnabled(enabled)
+    }
+
+    fun setInternalAudioVolume(volume: Float) {
+        settingsRepo.updateInternalAudioVolume(volume)
+    }
+
+    fun setMicAudioVolume(volume: Float) {
+        settingsRepo.updateMicAudioVolume(volume)
+    }
+
+    fun setRecordingMode(mode: String) {
+        settingsRepo.updateRecordingMode(mode)
+    }
+
     fun createGif(item: RecordingItem, startMs: Long, durationMs: Long, onDone: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {

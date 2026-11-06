@@ -48,6 +48,11 @@ class SettingsRepository(context: Context) {
         val watermark = prefs.getBoolean("watermark_enabled", false)
         val watermarkText = prefs.getString("watermark_text", "Screen Recorder") ?: "Screen Recorder"
         val autoSaveToGallery = prefs.getBoolean("auto_save_to_gallery", true)
+        val internalAudioEnabled = prefs.getBoolean("internal_audio_enabled", true)
+        val micAudioEnabled = prefs.getBoolean("mic_audio_enabled", true)
+        val internalAudioVolume = prefs.getFloat("internal_audio_volume", 0.8f)
+        val micAudioVolume = prefs.getFloat("mic_audio_volume", 0.7f)
+        val recordingMode = prefs.getString("recording_mode", "Standard") ?: "Standard"
 
         val resolution = try { VideoResolution.valueOf(resName) } catch (e: Exception) { VideoResolution.FHD_1080P }
         val orientation = try { VideoOrientation.valueOf(orientationName) } catch (e: Exception) { VideoOrientation.AUTO }
@@ -84,8 +89,38 @@ class SettingsRepository(context: Context) {
             autoStopFileSize = autoStopFileSize,
             watermarkEnabled = watermark,
             watermarkText = watermarkText,
-            autoSaveToGallery = autoSaveToGallery
+            autoSaveToGallery = autoSaveToGallery,
+            internalAudioEnabled = internalAudioEnabled,
+            micAudioEnabled = micAudioEnabled,
+            internalAudioVolume = internalAudioVolume,
+            micAudioVolume = micAudioVolume,
+            recordingMode = recordingMode
         )
+    }
+
+    fun updateInternalAudioEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("internal_audio_enabled", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(internalAudioEnabled = enabled)
+    }
+
+    fun updateMicAudioEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("mic_audio_enabled", enabled).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(micAudioEnabled = enabled)
+    }
+
+    fun updateInternalAudioVolume(volume: Float) {
+        prefs.edit().putFloat("internal_audio_volume", volume).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(internalAudioVolume = volume)
+    }
+
+    fun updateMicAudioVolume(volume: Float) {
+        prefs.edit().putFloat("mic_audio_volume", volume).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(micAudioVolume = volume)
+    }
+
+    fun updateRecordingMode(mode: String) {
+        prefs.edit().putString("recording_mode", mode).apply()
+        _settingsFlow.value = _settingsFlow.value.copy(recordingMode = mode)
     }
 
     fun updateResolution(resolution: VideoResolution) {
